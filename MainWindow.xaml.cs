@@ -303,6 +303,7 @@ public partial class MainWindow : Window
 
         SetInputValueIfColumnMatches(item.Manufacturer, "Manufacturer", "厂商", "品牌", "Mfg");
         SetInputValueIfColumnMatches(item.ManufacturerProductNumber, "Manufacturer_Part_Number", "MPN", "原厂型号", "PartNumber", "Part_Number_Mfg");
+        SetInputValueIfColumnMatches(item.Category, "Part_Type", "Type", "类别", "器件类型");
         SetInputValueIfColumnMatches(item.Description, "Description", "描述", "品名", "Desc");
         SetInputValueIfColumnMatches(item.DatasheetUrl, "Datasheet_URL", "Datasheet", "规格书", "URL");
         SetInputValueIfColumnMatches(item.Package, "Package", "封装", "Package_Type");
@@ -310,6 +311,7 @@ public partial class MainWindow : Window
         SetInputValueIfColumnMatches(item.Price, "Price_RMB", "Price", "价格", "单价");
         SetInputValueIfColumnMatches(item.LcscPartNumber, "LCSC_Part_Number", "LCSC", "立创编号", "LCSC_PN");
 
+        var hasValueParam = false;
         foreach (var (paramKey, paramVal) in item.Parameters)
         {
             if (paramKey.Contains("Resistance", StringComparison.OrdinalIgnoreCase) ||
@@ -317,19 +319,14 @@ public partial class MainWindow : Window
                 paramKey.Contains("Inductance", StringComparison.OrdinalIgnoreCase))
             {
                 SetInputValueIfColumnMatches(paramVal, "Value", "阻值", "容值", "感值", "数值");
+                hasValueParam = true;
             }
-            else if (paramKey.Contains("Tolerance", StringComparison.OrdinalIgnoreCase))
-            {
-                SetInputValueIfColumnMatches(paramVal, "Tolerance", "精度", "容差");
-            }
-            else if (paramKey.Contains("Power", StringComparison.OrdinalIgnoreCase))
-            {
-                SetInputValueIfColumnMatches(paramVal, "Power_Rating", "Power", "功率", "额定功率");
-            }
-            else if (paramKey.Contains("Voltage", StringComparison.OrdinalIgnoreCase))
-            {
-                SetInputValueIfColumnMatches(paramVal, "Voltage_Rating", "Voltage", "耐压", "额定电压");
-            }
+        }
+
+        // 若不是阻容感等参数件，默认将芯片/器件的 Value 设置为主型号 (Cadence CIS 惯例)
+        if (!hasValueParam && !string.IsNullOrWhiteSpace(item.ManufacturerProductNumber))
+        {
+            SetInputValueIfColumnMatches(item.ManufacturerProductNumber, "Value", "型号", "数值");
         }
 
         if (IsStandardPartMode && !string.IsNullOrWhiteSpace(item.Package))

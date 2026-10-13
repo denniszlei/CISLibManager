@@ -85,6 +85,11 @@ public sealed class DigiKeyService
                 item.LifecycleStatus = st.GetString() ?? "Unknown";
             }
 
+            if (prod.TryGetProperty("Category", out var catElem) && catElem.TryGetProperty("Name", out var catName))
+            {
+                item.Category = catName.GetString();
+            }
+
             // 提取价格
             if (prod.TryGetProperty("StandardPricing", out var pricingElem) && pricingElem.ValueKind == JsonValueKind.Array)
             {

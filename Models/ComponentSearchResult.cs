@@ -12,6 +12,8 @@ public sealed class ComponentSearchResult
 
     public string? DetailedDescription { get; set; }
 
+    public string? Category { get; set; }
+
     public string? Package { get; set; }
 
     public string? DatasheetUrl { get; set; }
