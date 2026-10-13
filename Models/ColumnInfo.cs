@@ -1,4 +1,4 @@
-﻿namespace CadenceCisLibraryManager.Models;
+namespace CadenceCisLibraryManager.Models;
 
 public sealed class ColumnInfo
 {
@@ -15,4 +15,6 @@ public sealed class ColumnInfo
     public bool IsPrimaryKey { get; init; }
 
     public bool IsGenerated { get; init; }
+
+    public string? Comment { get; init; }
 }

@@ -9,7 +9,7 @@
     <Version>0.2.2</Version>
     <AssemblyVersion>0.2.2.0</AssemblyVersion>
     <FileVersion>0.2.2.0</FileVersion>
-    <Authors>linqingfeng</Authors>
+    <Authors>denniszlei</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>

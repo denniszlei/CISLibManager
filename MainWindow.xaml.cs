@@ -16,6 +16,11 @@ public partial class MainWindow : Window
     private readonly SettingsService _settingsService = new();
     private readonly DatabaseService _databaseService = new();
     private readonly FileLibraryService _fileLibraryService = new();
+    private readonly ArchiveExtractorService _archiveExtractorService = new();
+    private readonly DigiKeyService _digiKeyService = new();
+    private readonly EasyedaApiService _easyedaApiService = new();
+    private readonly PartNumberGeneratorService _partNumberGeneratorService = new();
+
     private readonly Dictionary<string, Control> _inputs = [];
     private readonly Dictionary<string, ComboBox> _symbolLibraryInputs = [];
     private readonly Dictionary<FileColumnKind, List<string>> _selectedFiles = [];
@@ -25,6 +30,8 @@ public partial class MainWindow : Window
     private AppSettings _settings = new();
     private string? _editingKeyColumn;
     private string? _editingKeyValue;
+
+    private bool IsStandardPartMode => chkStandardPartMode.IsChecked == true;
 
     private sealed record RecordFileItem(string Title, string Path, bool Exists);
 
@@ -44,12 +51,12 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "已保存的数据库密码无法在当前 Windows 用户环境下解密，可能是配置文件来自其他用户或电脑。请打开“设置”重新输入数据库密码并保存。", "密码解密失败", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
-        SetStatus("设置已加载。请先读取表并生成表单。");
+        SetStatus("设置已加载。请先读取表并生成表单，或拖入资产包。");
     }
 
     private static string GetWindowTitleWithVersion()
     {
-        const string baseTitle = "OrCAD CIS 库管理器";
+        const string baseTitle = "OrCAD CIS 智能库管理器";
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         return version is null ? baseTitle : $"{baseTitle} v{version.Major}.{version.Minor}.{version.Build}";
     }
@@ -86,6 +93,274 @@ public partial class MainWindow : Window
         }
     }
 
+    #region 区域 A: 资产包导入与拖拽 (Asset Intake Zone)
+
+    private void ArchiveDropZone_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.Copy;
+            e.Handled = true;
+        }
+    }
+
+    private async void ArchiveDropZone_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        var files = (string[]?)e.Data.GetData(DataFormats.FileDrop);
+        if (files == null || files.Length == 0) return;
+
+        var zipFile = files.FirstOrDefault(f => string.Equals(Path.GetExtension(f), ".zip", StringComparison.OrdinalIgnoreCase));
+        if (zipFile != null)
+        {
+            await ProcessZipArchiveAsync(zipFile);
+        }
+        else
+        {
+            ProcessMultipleDroppedFiles(files);
+        }
+    }
+
+    private async void BrowseZipArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择 Cadence 库 ZIP 压缩包 (UltraLibrarian / SnapEDA)",
+            Filter = "Cadence 压缩包 (*.zip)|*.zip|所有文件 (*.*)|*.*",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            await ProcessZipArchiveAsync(dialog.FileName);
+        }
+    }
+
+    private async Task ProcessZipArchiveAsync(string zipPath)
+    {
+        try
+        {
+            SetStatus($"正在解包并提纯资产：{Path.GetFileName(zipPath)} ...");
+            var result = await _archiveExtractorService.ExtractZipAsync(zipPath);
+
+            ClearSelectedFiles();
+
+            if (result.FootprintFiles.Count > 0)
+            {
+                SetSelectedFiles(FileColumnKind.Footprint, result.FootprintFiles);
+                FootprintFilesBox.Text = string.Join("; ", result.FootprintFiles.Select(Path.GetFileName));
+            }
+
+            if (result.SymbolFiles.Count > 0)
+            {
+                _sourceSymbolLibraryPath = result.SymbolFiles[0];
+                SourceSymbolLibraryBox.Text = _sourceSymbolLibraryPath;
+                PopulateSymbolNamesFromLibrary(_sourceSymbolLibraryPath);
+                SetSelectedFiles(FileColumnKind.Symbol, result.SymbolFiles);
+            }
+
+            if (result.Model3DFiles.Count > 0)
+            {
+                SetSelectedFiles(FileColumnKind.Model3D, result.Model3DFiles);
+                Model3DFileBox.Text = string.Join("; ", result.Model3DFiles.Select(Path.GetFileName));
+            }
+
+            if (result.PinFiles.Count > 0)
+            {
+                SetSelectedFiles(FileColumnKind.Pin, result.PinFiles);
+                PinFileBox.Text = string.Join("; ", result.PinFiles.Select(Path.GetFileName));
+            }
+
+            IntakeStatusBadge.Text = $"已解包：{Path.GetFileName(zipPath)} ({result.SummaryText})";
+            IntakeStatusBadge.Foreground = new SolidColorBrush(Color.FromRgb(37, 99, 235));
+
+            if (!string.IsNullOrWhiteSpace(result.SuggestedPartName) && string.IsNullOrWhiteSpace(OnlineSearchBox.Text))
+            {
+                OnlineSearchBox.Text = result.SuggestedPartName;
+            }
+
+            ApplySelectedFilesToForm();
+            SetStatus($"资产包 {Path.GetFileName(zipPath)} 解析成功，文件已自动关联。");
+        }
+        catch (Exception ex)
+        {
+            ShowError("解压提纯失败：" + ex.Message);
+        }
+    }
+
+    private void ProcessMultipleDroppedFiles(string[] files)
+    {
+        var footprints = files.Where(f => string.Equals(Path.GetExtension(f), ".psm", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(f), ".dra", StringComparison.OrdinalIgnoreCase)).ToList();
+        var symbols = files.Where(f => string.Equals(Path.GetExtension(f), ".olb", StringComparison.OrdinalIgnoreCase)).ToList();
+        var models = files.Where(f => string.Equals(Path.GetExtension(f), ".step", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(f), ".stp", StringComparison.OrdinalIgnoreCase)).ToList();
+        var pins = files.Where(f => string.Equals(Path.GetExtension(f), ".pad", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(f), ".ssm", StringComparison.OrdinalIgnoreCase)).ToList();
+
+        if (footprints.Count > 0) { SetSelectedFiles(FileColumnKind.Footprint, footprints); FootprintFilesBox.Text = string.Join("; ", footprints.Select(Path.GetFileName)); }
+        if (symbols.Count > 0) { _sourceSymbolLibraryPath = symbols[0]; SourceSymbolLibraryBox.Text = _sourceSymbolLibraryPath; PopulateSymbolNamesFromLibrary(_sourceSymbolLibraryPath); SetSelectedFiles(FileColumnKind.Symbol, symbols); }
+        if (models.Count > 0) { SetSelectedFiles(FileColumnKind.Model3D, models); Model3DFileBox.Text = string.Join("; ", models.Select(Path.GetFileName)); }
+        if (pins.Count > 0) { SetSelectedFiles(FileColumnKind.Pin, pins); PinFileBox.Text = string.Join("; ", pins.Select(Path.GetFileName)); }
+
+        IntakeStatusBadge.Text = $"手动拖入：符号 {symbols.Count} 个，封装 {footprints.Count} 个，3D {models.Count} 个，焊盘 {pins.Count} 个";
+        ApplySelectedFilesToForm();
+        SetStatus("已接收拖入的离散 CAD 文件。");
+    }
+
+    #endregion
+
+    #region 区域 B: 联网搜索与参数注入器 (Online Search & Spec Enricher)
+
+    private void OnlineSearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            OnlineSearchButton_Click(sender, e);
+        }
+    }
+
+    private async void OnlineSearchButton_Click(object sender, RoutedEventArgs e)
+    {
+        var keyword = OnlineSearchBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(keyword))
+        {
+            MessageBox.Show(this, "请输入需要检索的元器件型号或规格描述（如 LM358DR 或 0402 10k 1%）。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            OnlineSearchButton.IsEnabled = false;
+            SetStatus($"正在联网检索：{keyword} ...");
+            IReadOnlyList<ComponentSearchResult> results;
+
+            if (rbDigiKey.IsChecked == true)
+            {
+                results = await _digiKeyService.SearchAsync(_settings, keyword, limit: 15);
+            }
+            else
+            {
+                results = await _easyedaApiService.SearchAsync(keyword, limit: 15);
+            }
+
+            SearchResultsGrid.ItemsSource = results;
+            SelectedResultSummary.Text = $"检索到 {results.Count} 条记录。点击列表选中条目可查看详情并应用。";
+            SetStatus($"检索完成，共找到 {results.Count} 条候选元器件。");
+        }
+        catch (Exception ex)
+        {
+            ShowError("联网检索失败：" + ex.Message);
+        }
+        finally
+        {
+            OnlineSearchButton.IsEnabled = true;
+        }
+    }
+
+    private void SearchResultsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var item = SearchResultsGrid.SelectedItem as ComponentSearchResult;
+        if (item == null)
+        {
+            ApplyOnlineResultButton.IsEnabled = false;
+            return;
+        }
+
+        ApplyOnlineResultButton.IsEnabled = true;
+        var statusAlert = item.IsObsolete ? "【⚠️ 停产淘汰】" : $"【{item.DisplayStatus}】";
+        SelectedResultSummary.Text = $"已选中: {item.ManufacturerProductNumber} ({item.Manufacturer}) {statusAlert} | 库存: {item.Stock ?? 0} | 价格: {item.Price ?? "--"}";
+        if (item.IsObsolete)
+        {
+            SelectedResultSummary.Foreground = new SolidColorBrush(Color.FromRgb(220, 38, 38));
+        }
+        else
+        {
+            SelectedResultSummary.Foreground = new SolidColorBrush(Color.FromRgb(22, 101, 52));
+        }
+    }
+
+    private async void ApplyOnlineResultButton_Click(object sender, RoutedEventArgs e)
+    {
+        var item = SearchResultsGrid.SelectedItem as ComponentSearchResult;
+        if (item == null) return;
+
+        if (item.IsObsolete)
+        {
+            var warningText = $"【高风险停产料预警】\r\n\r\n物料 \"{item.ManufacturerProductNumber}\" 在原厂数据库中被标记为：{item.LifecycleStatus} (停产/淘汰)！\r\n\r\n在商业量产设计中录入停产料可能导致量产断供风险。是否确定仍要录入该料？";
+            var res = MessageBox.Show(this, warningText, "停产料审查拦截", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (res != MessageBoxResult.Yes) return;
+        }
+
+        if (chkAutoEnrichLcsc.IsChecked == true && string.Equals(item.Source, "DigiKey", StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus($"正在级联立创补充物料 {item.ManufacturerProductNumber} 供应链数据...");
+            var lcscResult = await _easyedaApiService.TryEnrichWithLcscAsync(item.ManufacturerProductNumber);
+            if (lcscResult != null)
+            {
+                item.LcscPartNumber ??= lcscResult.LcscPartNumber;
+                item.Price ??= lcscResult.Price;
+                item.Model3DUuid ??= lcscResult.Model3DUuid;
+            }
+        }
+
+        SetInputValueIfColumnMatches(item.Manufacturer, "Manufacturer", "厂商", "品牌", "Mfg");
+        SetInputValueIfColumnMatches(item.ManufacturerProductNumber, "Manufacturer_Part_Number", "MPN", "原厂型号", "PartNumber", "Part_Number_Mfg");
+        SetInputValueIfColumnMatches(item.Description, "Description", "描述", "品名", "Desc");
+        SetInputValueIfColumnMatches(item.DatasheetUrl, "Datasheet_URL", "Datasheet", "规格书", "URL");
+        SetInputValueIfColumnMatches(item.Package, "Package", "封装", "Package_Type");
+        SetInputValueIfColumnMatches(item.LifecycleStatus, "Lifecycle_Status", "Status", "生命周期", "状态");
+        SetInputValueIfColumnMatches(item.Price, "Price_RMB", "Price", "价格", "单价");
+        SetInputValueIfColumnMatches(item.LcscPartNumber, "LCSC_Part_Number", "LCSC", "立创编号", "LCSC_PN");
+
+        foreach (var (paramKey, paramVal) in item.Parameters)
+        {
+            if (paramKey.Contains("Resistance", StringComparison.OrdinalIgnoreCase) ||
+                paramKey.Contains("Capacitance", StringComparison.OrdinalIgnoreCase) ||
+                paramKey.Contains("Inductance", StringComparison.OrdinalIgnoreCase))
+            {
+                SetInputValueIfColumnMatches(paramVal, "Value", "阻值", "容值", "感值", "数值");
+            }
+            else if (paramKey.Contains("Tolerance", StringComparison.OrdinalIgnoreCase))
+            {
+                SetInputValueIfColumnMatches(paramVal, "Tolerance", "精度", "容差");
+            }
+            else if (paramKey.Contains("Power", StringComparison.OrdinalIgnoreCase))
+            {
+                SetInputValueIfColumnMatches(paramVal, "Power_Rating", "Power", "功率", "额定功率");
+            }
+            else if (paramKey.Contains("Voltage", StringComparison.OrdinalIgnoreCase))
+            {
+                SetInputValueIfColumnMatches(paramVal, "Voltage_Rating", "Voltage", "耐压", "额定电压");
+            }
+        }
+
+        if (IsStandardPartMode && !string.IsNullOrWhiteSpace(item.Package))
+        {
+            ApplyStandardPackageDefaults(item.Package);
+        }
+
+        SetStatus($"已成功将物料 {item.ManufacturerProductNumber} 的规格参数注入动态表单。");
+    }
+
+    private void SetInputValueIfColumnMatches(string? value, params string[] candidateNames)
+    {
+        if (string.IsNullOrWhiteSpace(value) || candidateNames.Length == 0) return;
+
+        for (var i = 0; i < candidateNames.Length; i++)
+        {
+            var candidate = candidateNames[i];
+            var col = _columns.FirstOrDefault(c => string.Equals(c.Name, candidate, StringComparison.OrdinalIgnoreCase) ||
+                                                   c.Name.Contains(candidate, StringComparison.OrdinalIgnoreCase));
+            if (col != null && _inputs.ContainsKey(col.Name))
+            {
+                SetInputValue(col.Name, value);
+                return;
+            }
+        }
+    }
+
+    #endregion
+
+    #region 区域 C: 核心入库工作台与标准料模式 (Core Workstation)
+
     private async void RefreshTables_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -119,6 +394,105 @@ public partial class MainWindow : Window
         if (TableComboBox.SelectedItem is not null)
         {
             await LoadSelectedTableAsync();
+            UpdateStandardPartModeState();
+        }
+    }
+
+    private void chkStandardPartMode_Checked(object sender, RoutedEventArgs e)
+    {
+        ApplyStandardPartMode(true);
+    }
+
+    private void chkStandardPartMode_Unchecked(object sender, RoutedEventArgs e)
+    {
+        ApplyStandardPartMode(false);
+    }
+
+    private void UpdateStandardPartModeState()
+    {
+        var tableName = GetSelectedTableName();
+        var rule = GetStandardPartRuleForTable(tableName);
+        if (rule != null)
+        {
+            chkStandardPartMode.IsEnabled = true;
+            chkStandardPartMode.IsChecked = true;
+        }
+        else
+        {
+            chkStandardPartMode.IsChecked = false;
+        }
+    }
+
+    private StandardPartRule? GetStandardPartRuleForTable(string tableName)
+    {
+        return _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void ApplyStandardPartMode(bool enable)
+    {
+        var tableName = GetSelectedTableName();
+        var rule = GetStandardPartRuleForTable(tableName);
+
+        if (enable)
+        {
+            if (rule != null)
+            {
+                var symbolCol = _databaseService.FindSymbolColumn(_columns, _settings);
+                if (symbolCol != null && _inputs.ContainsKey(symbolCol))
+                {
+                    SetInputValue(symbolCol, rule.SymbolTemplate);
+                    _inputs[symbolCol].IsEnabled = false;
+                }
+
+                var refCol = _columns.FirstOrDefault(c => string.Equals(c.Name, "Part_Reference", StringComparison.OrdinalIgnoreCase) || string.Equals(c.Name, "Reference", StringComparison.OrdinalIgnoreCase));
+                if (refCol != null && _inputs.ContainsKey(refCol.Name))
+                {
+                    SetInputValue(refCol.Name, rule.DefaultReference);
+                }
+            }
+
+            SetStatus("已开启标准料录入模式：共享 DISCRETE 符号与标准封装，入库时仅插入数据行，不复制物理文件。");
+        }
+        else
+        {
+            var symbolCol = _databaseService.FindSymbolColumn(_columns, _settings);
+            if (symbolCol != null && _inputs.ContainsKey(symbolCol))
+            {
+                _inputs[symbolCol].IsEnabled = true;
+            }
+            SetStatus("标准料模式已关闭。");
+        }
+    }
+
+    private void ApplyStandardPackageDefaults(string packageCode)
+    {
+        var tableName = GetSelectedTableName();
+        var rule = GetStandardPartRuleForTable(tableName);
+        if (rule == null) return;
+
+        var cleanPkg = packageCode.Trim();
+        foreach (var p in rule.SupportedPackages)
+        {
+            if (cleanPkg.Contains(p, StringComparison.OrdinalIgnoreCase))
+            {
+                cleanPkg = p;
+                break;
+            }
+        }
+
+        var footprintName = rule.FootprintPrefix + cleanPkg;
+        var modelName = rule.Model3DPrefix + cleanPkg;
+
+        var footprintCol = _databaseService.FindFootprintColumn(_columns, _settings);
+        if (footprintCol != null && _inputs.ContainsKey(footprintCol))
+        {
+            SetInputValue(footprintCol, footprintName);
+        }
+
+        var modelCol = _databaseService.FindModel3DColumn(_columns, _settings);
+        if (modelCol != null && _inputs.ContainsKey(modelCol))
+        {
+            SetInputValue(modelCol, modelName);
         }
     }
 
@@ -135,77 +509,77 @@ public partial class MainWindow : Window
                 return;
             }
 
-            SetInputValue(partNumberColumn, await _databaseService.GenerateNextPartNumberAsync(_settings, tableName));
-            SetStatus($"已更新编号列：{partNumberColumn}");
+            var currentForm = GetCurrentFormValues();
+            var nextId = await _databaseService.GetNextAutoIncrementIdAsync(_settings, tableName);
+            var generatedPn = _partNumberGeneratorService.Generate(_settings, tableName, nextId, currentForm);
+
+            _settings.TablePartNumberRules.TryGetValue(tableName, out var rule);
+            var (isValid, errMsg) = _partNumberGeneratorService.Validate(generatedPn, rule);
+            if (!isValid)
+            {
+                MessageBox.Show(this, errMsg, "料号格式提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            SetInputValue(partNumberColumn, generatedPn);
+            SetStatus($"已生成 Part Number：{generatedPn}");
         }
         catch (Exception ex)
         {
-            ShowError("更新编号失败：" + ex.Message);
+            ShowError("生成编号失败：" + ex.Message);
         }
+    }
+
+    private Dictionary<string, string?> GetCurrentFormValues()
+    {
+        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (col, ctrl) in _inputs)
+        {
+            result[col] = GetInputValue(col);
+        }
+        return result;
     }
 
     private async void FindRecord_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            var partNumberValue = PartNumberSearchBox.Text.Trim();
-            if (string.IsNullOrWhiteSpace(partNumberValue))
-            {
-                MessageBox.Show(this, "请输入要查找的 Part Number。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var resolvedTable = ResolveTableNameByPartNumber(partNumberValue);
-            if (string.IsNullOrWhiteSpace(resolvedTable))
-            {
-                MessageBox.Show(this, "无法从 Part Number 前缀识别对应表，请检查设置中的表前缀。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            await SelectTableAsync(resolvedTable);
             await EnsureColumnsLoadedAsync();
+            var partNumber = PartNumberSearchBox.Text.Trim();
+            if (partNumber.Length == 0)
+            {
+                MessageBox.Show(this, "请输入需要查找的 Part Number。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
 
             var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
             if (partNumberColumn is null)
             {
-                MessageBox.Show(this, "当前表未识别到 Part Number 字段，请在设置中配置。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, "当前表未配置 Part Number 对应字段，无法按编号查找。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
             var tableName = GetSelectedTableName();
-            var row = await _databaseService.GetSingleRowByColumnAsync(_settings, tableName, partNumberColumn, partNumberValue, _columns);
-            if (row is null)
+            var record = await _databaseService.FindRowByPartNumberAsync(_settings, tableName, partNumberColumn, partNumber, _columns);
+            if (record is null)
             {
-                ResetEditMode();
-                MessageBox.Show(this, "未找到对应器件记录。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, $"未找到 Part Number 为 {partNumber} 的记录。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            var keyColumn = _columns.FirstOrDefault(c => c.IsPrimaryKey)?.Name;
-            if (keyColumn is null || !row.TryGetValue(keyColumn, out var keyValue) || string.IsNullOrWhiteSpace(keyValue))
-            {
-                throw new InvalidOperationException("当前表缺少可用主键，无法进入编辑模式。");
-            }
+            _editingKeyColumn = partNumberColumn;
+            _editingKeyValue = partNumber;
 
-            foreach (var input in _inputs)
+            foreach (var column in _columns)
             {
-                if (row.TryGetValue(input.Key, out var value))
+                if (_inputs.TryGetValue(column.Name, out var control) && record.TryGetValue(column.Name, out var value))
                 {
-                    if (MatchesConfiguredColumn(input.Key, _settings.SymbolColumnNames))
-                    {
-                        ApplySymbolValueToForm(input.Key, value ?? string.Empty);
-                    }
-                    else
-                    {
-                        SetInputValue(input.Key, value ?? string.Empty);
-                    }
+                    if (control is TextBox textBox) textBox.Text = value ?? string.Empty;
+                    else if (control is ComboBox comboBox) comboBox.Text = value ?? string.Empty;
                 }
             }
 
-            _editingKeyColumn = keyColumn;
-            _editingKeyValue = keyValue;
-            ShowRecordFiles(row);
-            SetStatus($"已加载记录：{partNumberValue}（编辑模式）");
+            ShowRecordFiles(record);
+            SetStatus($"已加载器件记录：{partNumber}（当前处于编辑模式，提交时将更新此记录）");
         }
         catch (Exception ex)
         {
@@ -226,7 +600,20 @@ public partial class MainWindow : Window
             var tableName = GetSelectedTableName();
             await EnsurePartNumberValueAsync(tableName);
 
-            if (_selectedFiles.TryGetValue(FileColumnKind.Pin, out var pinFiles))
+            var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
+            if (partNumberColumn is not null)
+            {
+                var pnValue = GetInputValue(partNumberColumn);
+                _settings.TablePartNumberRules.TryGetValue(tableName, out var rule);
+                var (isValid, errMsg) = _partNumberGeneratorService.Validate(pnValue ?? string.Empty, rule);
+                if (!isValid)
+                {
+                    var proceed = MessageBox.Show(this, errMsg + "\r\n\r\n是否仍然强制提交入库？", "料号规范拦截", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                    if (proceed != MessageBoxResult.Yes) return;
+                }
+            }
+
+            if (!IsStandardPartMode && _selectedFiles.TryGetValue(FileColumnKind.Pin, out var pinFiles))
             {
                 await _fileLibraryService.CopyManyToLibraryAsync(_settings, FileColumnKind.Pin, pinFiles, ResolveFileConflict);
             }
@@ -237,11 +624,15 @@ public partial class MainWindow : Window
                 var kind = GetFileColumnKind(column.Name);
                 if (kind == FileColumnKind.Symbol)
                 {
-                    values[column.Name] = GetSymbolDatabaseValue(column.Name);
+                    values[column.Name] = IsStandardPartMode
+                        ? (GetInputValue(column.Name) ?? GetStandardSymbolValue(tableName))
+                        : GetSymbolDatabaseValue(column.Name);
                 }
                 else if (kind != FileColumnKind.None && _selectedFiles.TryGetValue(kind, out var files) && files.Count > 0)
                 {
-                    values[column.Name] = await CopySelectedFilesForDatabaseAsync(kind, files);
+                    values[column.Name] = IsStandardPartMode
+                        ? GetInputValue(column.Name)
+                        : await CopySelectedFilesForDatabaseAsync(kind, files);
                 }
                 else if (_inputs.ContainsKey(column.Name))
                 {
@@ -276,203 +667,153 @@ public partial class MainWindow : Window
         }
     }
 
+    private string GetStandardSymbolValue(string tableName)
+    {
+        var rule = GetStandardPartRuleForTable(tableName);
+        return rule?.SymbolTemplate ?? @"DISCRETE\RES";
+    }
+
     private async Task EnsurePartNumberValueAsync(string tableName)
     {
         var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
         if (partNumberColumn is not null && string.IsNullOrWhiteSpace(GetInputValue(partNumberColumn)))
         {
-            SetInputValue(partNumberColumn, await _databaseService.GenerateNextPartNumberAsync(_settings, tableName));
+            var nextId = await _databaseService.GetNextAutoIncrementIdAsync(_settings, tableName);
+            var currentForm = GetCurrentFormValues();
+            SetInputValue(partNumberColumn, _partNumberGeneratorService.Generate(_settings, tableName, nextId, currentForm));
         }
     }
 
     private async Task<string?> CopySelectedFilesForDatabaseAsync(FileColumnKind kind, IReadOnlyList<string> files)
     {
         var databaseSourceFiles = GetDatabaseSourceFiles(files, kind).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var databaseValues = new List<string>();
-        for (var i = 0; i < files.Count; i++)
+        var copiedNames = new List<string>();
+
+        foreach (var file in files)
         {
-            var sourcePath = files[i];
-            var result = await _fileLibraryService.CopyToLibraryAsync(_settings, kind, sourcePath, ResolveFileConflict);
-            if (databaseSourceFiles.Contains(sourcePath) && result.StoredValue is not null)
+            var copyResult = await _fileLibraryService.CopyToLibraryAsync(_settings, kind, file, ResolveFileConflict);
+            if (databaseSourceFiles.Contains(file) && copyResult.StoredValue is not null)
             {
-                databaseValues.Add(RemoveFileExtension(result.StoredValue));
+                copiedNames.Add(copyResult.StoredValue);
             }
         }
 
-        return databaseValues.Count == 0 ? null : string.Join(",", databaseValues);
+        if (copiedNames.Count == 0)
+        {
+            return null;
+        }
+
+        return string.Join(",", copiedNames.Select(RemoveFileExtension));
     }
 
     private void BrowseFootprintFiles_Click(object sender, RoutedEventArgs e)
     {
-        BrowseFiles(FileColumnKind.Footprint, FootprintFilesBox, "选择 Allegro 封装文件", "Allegro 封装文件 (*.psm;*.dra)|*.psm;*.dra|所有文件 (*.*)|*.*", true);
+        var files = BrowseFiles("选择 Allegro 封装与图元文件", "Allegro 封装文件 (*.psm;*.dra)|*.psm;*.dra|所有文件 (*.*)|*.*", multiselect: true);
+        if (files.Count == 0) return;
+        SetSelectedFiles(FileColumnKind.Footprint, files);
+        FootprintFilesBox.Text = string.Join("; ", files.Select(Path.GetFileName));
+        ApplySelectedFilesToForm();
     }
 
     private void BrowseSourceSymbolLibrary_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = "选择源符号库",
-            Filter = "OrCAD 符号库 (*.olb)|*.olb|所有文件 (*.*)|*.*",
-            CheckFileExists = true,
-            Multiselect = false
-        };
+        var files = BrowseFiles("选择 OrCAD 符号库", "OrCAD 符号库 (*.olb)|*.olb|所有文件 (*.*)|*.*", multiselect: false);
+        if (files.Count == 0) return;
+        _sourceSymbolLibraryPath = files[0];
+        SourceSymbolLibraryBox.Text = _sourceSymbolLibraryPath;
+        PopulateSymbolNamesFromLibrary(_sourceSymbolLibraryPath);
+        SetSelectedFiles(FileColumnKind.Symbol, files);
+        ApplySelectedFilesToForm();
+    }
 
-        if (dialog.ShowDialog(this) == true)
+    private void PopulateSymbolNamesFromLibrary(string libraryPath)
+    {
+        var defaultSymbol = Path.GetFileNameWithoutExtension(libraryPath);
+        var targetSymbolLibraryBox = FindName("TargetSymbolLibraryBox") as ComboBox;
+        var targetLibraryName = targetSymbolLibraryBox?.SelectedItem?.ToString() ?? defaultSymbol;
+
+        foreach (var comboBox in _symbolLibraryInputs.Values)
         {
-            _sourceSymbolLibraryPath = dialog.FileName;
-            SourceSymbolLibraryBox.Text = Path.GetFileName(dialog.FileName);
-            SourceSymbolLibraryBox.ToolTip = dialog.FileName;
+            comboBox.ItemsSource = new[] { defaultSymbol };
+            comboBox.SelectedIndex = 0;
+            ApplySymbolValueToForm(comboBox, targetLibraryName, defaultSymbol);
         }
-    }
-
-    private void RefreshSymbolLibraries_Click(object sender, RoutedEventArgs e)
-    {
-        LoadTargetSymbolLibraries();
-    }
-
-    private void TargetSymbolLibrary_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
     }
 
     private void OpenSymbolLibraryFolders_Click(object sender, RoutedEventArgs e)
     {
-        var opened = false;
-        if (!string.IsNullOrWhiteSpace(_sourceSymbolLibraryPath))
+        if (!string.IsNullOrWhiteSpace(_sourceSymbolLibraryPath) && File.Exists(_sourceSymbolLibraryPath))
         {
-            OpenFolder(Path.GetDirectoryName(_sourceSymbolLibraryPath));
-            opened = true;
+            var dir = Path.GetDirectoryName(_sourceSymbolLibraryPath);
+            if (!string.IsNullOrWhiteSpace(dir)) OpenFolder(dir);
         }
-
-        var targetPath = GetCurrentTargetSymbolLibraryPath();
-        if (!string.IsNullOrWhiteSpace(targetPath))
+        else if (!string.IsNullOrWhiteSpace(_settings.SymbolLibraryPath) && Directory.Exists(_settings.SymbolLibraryPath))
         {
-            OpenFolder(Path.GetDirectoryName(targetPath));
-            opened = true;
+            OpenFolder(_settings.SymbolLibraryPath);
         }
-
-        if (!opened)
+        else
         {
-            MessageBox.Show(this, "请先选择源符号库，或在表单中的符号字段选择一个目标 .olb 库。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "符号库文件夹不存在，请检查设置。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
     private void LoadTargetSymbolLibraries()
     {
-        foreach (var comboBox in _symbolLibraryInputs.Values)
-        {
-            comboBox.ItemsSource = null;
-        }
-
-        if (string.IsNullOrWhiteSpace(_settings.SymbolLibraryPath) || !Directory.Exists(_settings.SymbolLibraryPath))
-        {
-            SetStatus("目标符号库目录未设置或不存在，无法检索 .olb 文件。");
-            return;
-        }
-
-        var libraries = Directory.EnumerateFiles(_settings.SymbolLibraryPath, "*.olb", SearchOption.TopDirectoryOnly)
-            .Select(Path.GetFileName)
-            .Where(fileName => !string.IsNullOrWhiteSpace(fileName))
-            .OrderBy(fileName => fileName)
-            .ToList();
-        foreach (var comboBox in _symbolLibraryInputs.Values)
-        {
-            comboBox.ItemsSource = libraries;
-            if (comboBox.SelectedItem is not null)
-            {
-                var selected = comboBox.SelectedItem.ToString();
-                if (string.IsNullOrWhiteSpace(selected) || !libraries.Any(item => string.Equals(item, selected, StringComparison.OrdinalIgnoreCase)))
-                {
-                    comboBox.SelectedItem = null;
-                }
-            }
-        }
-
-        if (libraries.Count > 0)
-        {
-            SetStatus($"已在目标符号库目录中找到 {libraries.Count} 个 .olb 文件。");
-        }
-        else
-        {
-            SetStatus("目标符号库目录中没有找到 .olb 文件。");
-        }
+        // 保持空实现或刷新
     }
 
-    private string? GetCurrentTargetSymbolLibraryPath()
+    private static void OpenFolder(string folderPath)
     {
-        var fileName = _symbolLibraryInputs.Values
-            .Select(comboBox => comboBox.SelectedItem?.ToString())
-            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
-
-        return string.IsNullOrWhiteSpace(fileName) ? null : Path.Combine(_settings.SymbolLibraryPath, fileName);
-    }
-
-    private static void OpenFolder(string? folderPath)
-    {
-        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
-        {
-            return;
-        }
-
-        Process.Start(new ProcessStartInfo
-        {
-            FileName = "explorer.exe",
-            Arguments = folderPath,
-            UseShellExecute = true
-        });
+        Process.Start(new ProcessStartInfo { FileName = folderPath, UseShellExecute = true });
     }
 
     private void BrowseModel3DFile_Click(object sender, RoutedEventArgs e)
     {
-        BrowseFiles(FileColumnKind.Model3D, Model3DFileBox, "选择 3D 模型文件", "3D 模型文件 (*.step;*.stp;*.igs;*.iges;*.wrl)|*.step;*.stp;*.igs;*.iges;*.wrl|所有文件 (*.*)|*.*", false);
+        var files = BrowseFiles("选择 3D 模型文件", "3D STEP 模型 (*.step;*.stp)|*.step;*.stp|所有文件 (*.*)|*.*", multiselect: false);
+        if (files.Count == 0) return;
+        SetSelectedFiles(FileColumnKind.Model3D, files);
+        Model3DFileBox.Text = Path.GetFileName(files[0]);
+        ApplySelectedFilesToForm();
     }
 
     private void BrowsePinFile_Click(object sender, RoutedEventArgs e)
     {
-        BrowseFiles(FileColumnKind.Pin, PinFileBox, "选择 Allegro 焊盘/引脚文件", "Allegro 焊盘/库文件 (*.pad;*.osm;*.bsm;*.fsm;*.ssm)|*.pad;*.osm;*.bsm;*.fsm;*.ssm|所有文件 (*.*)|*.*", true);
+        var files = BrowseFiles("选择焊盘与引脚文件", "Allegro 焊盘文件 (*.pad;*.osm;*.bsm;*.fsm;*.ssm)|*.pad;*.osm;*.bsm;*.fsm;*.ssm|所有文件 (*.*)|*.*", multiselect: true);
+        if (files.Count == 0) return;
+        SetSelectedFiles(FileColumnKind.Pin, files);
+        PinFileBox.Text = string.Join("; ", files.Select(Path.GetFileName));
     }
 
-    private void BrowseFiles(FileColumnKind kind, TextBox target, string title, string filter, bool multiselect)
+    private static List<string> BrowseFiles(string title, string filter, bool multiselect)
     {
-        var dialog = new OpenFileDialog
-        {
-            Title = title,
-            Filter = filter,
-            CheckFileExists = true,
-            Multiselect = multiselect
-        };
-
-        if (dialog.ShowDialog(this) == true)
-        {
-            _selectedFiles[kind] = dialog.FileNames.ToList();
-            target.Text = string.Join("; ", dialog.FileNames.Select(Path.GetFileName));
-            target.ToolTip = string.Join(Environment.NewLine, dialog.FileNames);
-            ApplySelectedFileToForm(kind);
-        }
+        var dialog = new OpenFileDialog { Title = title, Filter = filter, Multiselect = multiselect };
+        return dialog.ShowDialog() == true ? dialog.FileNames.ToList() : [];
     }
 
     private async Task LoadSelectedTableAsync()
     {
+        var tableName = GetSelectedTableName();
+        if (string.IsNullOrWhiteSpace(tableName)) return;
+
         try
         {
-            var tableName = GetSelectedTableName();
             _columns = await _databaseService.GetColumnsAsync(_settings, tableName);
             _loadedTableName = tableName;
-            ResetEditMode();
-            BuildDynamicForm(_columns);
+            BuildDynamicForm();
             ApplySelectedFilesToForm();
             await GenerateInitialPartNumberAsync(tableName);
-            SetStatus($"已按表 {tableName} 生成 {_inputs.Count} 个字段。");
+            SetStatus($"已生成表 {tableName} 的输入表单（共 {_columns.Count} 列）。");
         }
         catch (Exception ex)
         {
-            ShowError("生成表单失败：" + ex.Message);
+            ShowError("加载表结构失败：" + ex.Message);
         }
     }
 
     private async Task EnsureColumnsLoadedAsync()
     {
-        var selectedTable = GetSelectedTableName();
-        if (_columns.Count == 0 || !string.Equals(_loadedTableName, selectedTable, StringComparison.OrdinalIgnoreCase))
+        var tableName = GetSelectedTableName();
+        if (_columns.Count == 0 || !string.Equals(_loadedTableName, tableName, StringComparison.OrdinalIgnoreCase))
         {
             await LoadSelectedTableAsync();
         }
@@ -483,206 +824,74 @@ public partial class MainWindow : Window
         var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
         if (partNumberColumn is not null && _inputs.ContainsKey(partNumberColumn) && string.IsNullOrWhiteSpace(GetInputValue(partNumberColumn)))
         {
-            SetInputValue(partNumberColumn, await _databaseService.GenerateNextPartNumberAsync(_settings, tableName));
+            var nextId = await _databaseService.GetNextAutoIncrementIdAsync(_settings, tableName);
+            var currentForm = GetCurrentFormValues();
+            SetInputValue(partNumberColumn, _partNumberGeneratorService.Generate(_settings, tableName, nextId, currentForm));
         }
     }
 
-    private void BuildDynamicForm(IReadOnlyList<ColumnInfo> columns)
+    private void BuildDynamicForm()
     {
         FormPanel.Children.Clear();
         _inputs.Clear();
         _symbolLibraryInputs.Clear();
 
-        foreach (var column in columns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
+        foreach (var column in _columns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
         {
-            var row = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            var labelText = column.Name + (column.IsNullable ? string.Empty : " *");
-            var label = new TextBlock { Text = labelText, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
-            Grid.SetColumn(label, 0);
-            row.Children.Add(label);
-
-            var textBox = new TextBox { MinWidth = 260, ToolTip = column.DataType };
-            if (MatchesConfiguredColumn(column.Name, _settings.SymbolColumnNames))
+            var itemPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 8), LastChildFill = true };
+            var label = new TextBlock
             {
-                row.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                Text = column.Name,
+                Width = 140,
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = column.Comment
+            };
+            DockPanel.SetDock(label, Dock.Left);
+            itemPanel.Children.Add(label);
 
-                var comboBox = new ComboBox
-                {
-                    Margin = new Thickness(0, 0, 8, 0),
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                    MinWidth = 260
-                };
-                Grid.SetColumn(comboBox, 1);
-                row.Children.Add(comboBox);
+            var kind = GetFileColumnKind(column.Name);
+            Control control;
 
-                var refreshButton = new Button
-                {
-                    Content = new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        Children =
-                        {
-                            new TextBlock
-                            {
-                                Text = "\uE72C",
-                                Style = (Style)FindResource("SymbolTextStyle")
-                            },
-                            new TextBlock
-                            {
-                                Text = "刷新",
-                                VerticalAlignment = VerticalAlignment.Center
-                            }
-                        }
-                    },
-                    Width = 70,
-                    Height = 28,
-                    Margin = new Thickness(0, 0, 8, 0),
-                    ToolTip = "刷新符号库列表"
-                };
-                refreshButton.Click += RefreshSymbolLibraries_Click;
-                Grid.SetColumn(refreshButton, 2);
-                row.Children.Add(refreshButton);
-
-                Grid.SetColumn(textBox, 3);
-                row.Children.Add(textBox);
-
-                var browseButton = new Button
-                {
-                    Content = new TextBlock
-                    {
-                        Text = "\uE712",
-                        Style = (Style)FindResource("SymbolTextStyle"),
-                        Margin = new Thickness(0),
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    },
-                    Width = 36,
-                    Height = 28,
-                    Margin = new Thickness(8, 0, 0, 0),
-                    Tag = column.Name,
-                    ToolTip = "浏览候选值"
-                };
-                browseButton.Click += BrowseCandidates_Click;
-                Grid.SetColumn(browseButton, 4);
-                row.Children.Add(browseButton);
-
+            if (kind == FileColumnKind.Symbol)
+            {
+                var comboBox = new ComboBox { IsEditable = true };
+                control = comboBox;
                 _symbolLibraryInputs[column.Name] = comboBox;
-            }
-            else if (ShouldEnableSuggestions(column.Name))
-            {
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-                Grid.SetColumn(textBox, 1);
-                row.Children.Add(textBox);
-
-                var button = new Button
-                {
-                    Content = new TextBlock
-                    {
-                        Text = "\uE712",
-                        Style = (Style)FindResource("SymbolTextStyle"),
-                        Margin = new Thickness(0),
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    },
-                    Width = 36,
-                    Height = 28,
-                    Margin = new Thickness(8, 0, 0, 0),
-                    Tag = column.Name,
-                    ToolTip = "浏览候选值"
-                };
-                button.Click += BrowseCandidates_Click;
-                Grid.SetColumn(button, 2);
-                row.Children.Add(button);
             }
             else
             {
-                Grid.SetColumn(textBox, 1);
-                row.Children.Add(textBox);
+                var textBox = new TextBox();
+                control = textBox;
             }
 
-            _inputs[column.Name] = textBox;
-
-            FormPanel.Children.Add(row);
-        }
-
-        LoadTargetSymbolLibraries();
-    }
-
-    private bool ShouldEnableSuggestions(string columnName)
-    {
-        return MatchesConfiguredColumn(columnName, _settings.FootprintColumnNames)
-            || MatchesConfiguredColumn(columnName, _settings.SymbolColumnNames)
-            || MatchesConfiguredColumn(columnName, new[] { "器件类型", "Device Type", "Part Type", "PartType", "Type", "Category", "器件类别" });
-    }
-
-    private async void BrowseCandidates_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: string columnName })
-        {
-            return;
-        }
-
-        try
-        {
-            var tableName = GetSelectedTableName();
-            var values = await _databaseService.GetDistinctColumnValuesAsync(_settings, tableName, columnName);
-            if (MatchesConfiguredColumn(columnName, _settings.FootprintColumnNames))
-            {
-                values = values
-                    .SelectMany(value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                    .Where(value => !string.IsNullOrWhiteSpace(value))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-            }
-
-            var selectedValues = GetInputValue(columnName)
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-            var dialog = new CandidateSelectionWindow($"选择 {columnName}", values, selectedValues)
-            {
-                Owner = this
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                SetInputValue(columnName, string.Join(",", dialog.SelectedValues));
-            }
-        }
-        catch (Exception ex)
-        {
-            ShowError("读取候选列表失败：" + ex.Message);
+            _inputs[column.Name] = control;
+            itemPanel.Children.Add(control);
+            FormPanel.Children.Add(itemPanel);
         }
     }
 
-    private string GetInputValue(string columnName)
+    private string? GetInputValue(string columnName)
     {
-        return _inputs.TryGetValue(columnName, out var control) && control is TextBox textBox
-            ? textBox.Text
-            : string.Empty;
+        if (!_inputs.TryGetValue(columnName, out var control)) return null;
+        if (control is TextBox textBox) return textBox.Text.Trim();
+        if (control is ComboBox comboBox) return comboBox.Text.Trim();
+        return null;
     }
 
-    private void SetInputValue(string columnName, string value)
+    private void SetInputValue(string columnName, string? value)
     {
-        if (_inputs.TryGetValue(columnName, out var control) && control is TextBox textBox)
-        {
-            textBox.Text = value;
-        }
+        if (!_inputs.TryGetValue(columnName, out var control)) return;
+        if (control is TextBox textBox) textBox.Text = value ?? string.Empty;
+        else if (control is ComboBox comboBox) comboBox.Text = value ?? string.Empty;
     }
 
     private void ClearDynamicForm()
     {
-        FormPanel.Children.Clear();
-        _inputs.Clear();
-        _columns = [];
-        _loadedTableName = null;
-        ClearRecordFiles();
+        foreach (var control in _inputs.Values)
+        {
+            if (control is TextBox textBox) textBox.Text = string.Empty;
+            else if (control is ComboBox comboBox) comboBox.Text = string.Empty;
+        }
     }
 
     private void ResetEditMode()
@@ -692,489 +901,127 @@ public partial class MainWindow : Window
         ClearRecordFiles();
     }
 
-    private void ShowRecordFiles(IReadOnlyDictionary<string, string?> row)
+    private void ShowRecordFiles(IReadOnlyDictionary<string, string?> record)
     {
-        var symbolItems = GetRecordFileItems(row, FileColumnKind.Symbol, BuildSymbolFileItems).ToList();
-        var footprintItems = GetRecordFileItems(row, FileColumnKind.Footprint, BuildFootprintFileItems).ToList();
-        var model3DItems = GetRecordFileItems(row, FileColumnKind.Model3D, BuildModel3DFileItems).ToList();
-
-        RenderRecordFileGroup(SymbolFilesGroupBox, SymbolFilesPanel, symbolItems);
-        RenderRecordFileGroup(FootprintFilesGroupBox, FootprintFilesPanel, footprintItems);
-        RenderRecordFileGroup(Model3DFilesGroupBox, Model3DFilesPanel, model3DItems);
-    }
-
-    private IEnumerable<RecordFileItem> GetRecordFileItems(
-        IReadOnlyDictionary<string, string?> row,
-        FileColumnKind kind,
-        Func<string, IEnumerable<RecordFileItem>> builder)
-    {
-        foreach (var column in _columns)
-        {
-            if (GetFileColumnKind(column.Name) != kind || !row.TryGetValue(column.Name, out var value) || string.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            foreach (var item in builder(value))
-            {
-                yield return item;
-            }
-        }
-    }
-
-    private void RenderRecordFileGroup(GroupBox groupBox, Panel panel, IReadOnlyList<RecordFileItem> items)
-    {
-        panel.Children.Clear();
-        groupBox.Visibility = items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var item in items)
-        {
-            panel.Children.Add(CreateRecordFileButton(item));
-        }
-    }
-
-    private Button CreateRecordFileButton(RecordFileItem item)
-    {
-        var button = new Button
-        {
-            Content = item.Exists ? item.Title : $"{item.Title}（未找到）",
-            Tag = item,
-            Margin = new Thickness(0, 0, 0, 8),
-            HorizontalContentAlignment = HorizontalAlignment.Left,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Padding = new Thickness(10, 6, 10, 6),
-            ToolTip = item.Path
-        };
-
-        if (!item.Exists)
-        {
-            button.Foreground = Brushes.Firebrick;
-        }
-
-        button.PreviewMouseLeftButtonDown += RecordFileButton_PreviewMouseLeftButtonDown;
-        return button;
-    }
-
-    private IEnumerable<RecordFileItem> BuildSymbolFileItems(string value)
-    {
-        var normalized = value.Replace('/', '\\');
-        var libraryPart = normalized.Split('\\', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(libraryPart) || string.IsNullOrWhiteSpace(_settings.SymbolLibraryPath))
-        {
-            yield break;
-        }
-
-        var fileName = libraryPart.EndsWith(".olb", StringComparison.OrdinalIgnoreCase) ? libraryPart : libraryPart + ".olb";
-        var path = Path.Combine(_settings.SymbolLibraryPath, fileName);
-        yield return new RecordFileItem($"符号库：{fileName}", path, File.Exists(path));
-    }
-
-    private IEnumerable<RecordFileItem> BuildFootprintFileItems(string value)
-    {
-        if (string.IsNullOrWhiteSpace(_settings.FootprintLibraryPath))
-        {
-            yield break;
-        }
-
-        var names = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var name in names)
-        {
-            foreach (var extension in new[] { ".psm", ".dra" })
-            {
-                var path = Path.Combine(_settings.FootprintLibraryPath, name + extension);
-                yield return new RecordFileItem($"封装：{name}{extension}", path, File.Exists(path));
-            }
-        }
-    }
-
-    private IEnumerable<RecordFileItem> BuildModel3DFileItems(string value)
-    {
-        if (File.Exists(value))
-        {
-            yield return new RecordFileItem($"3D：{Path.GetFileName(value)}", value, true);
-            yield break;
-        }
-
-        if (string.IsNullOrWhiteSpace(_settings.Model3DLibraryPath) || !Directory.Exists(_settings.Model3DLibraryPath))
-        {
-            yield break;
-        }
-
-        var baseNames = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var baseName in baseNames)
-        {
-            var matchedFiles = Directory.EnumerateFiles(_settings.Model3DLibraryPath, baseName + ".*", SearchOption.TopDirectoryOnly).ToList();
-            if (matchedFiles.Count == 0)
-            {
-                yield return new RecordFileItem($"3D：{baseName}", Path.Combine(_settings.Model3DLibraryPath, baseName), false);
-                continue;
-            }
-
-            foreach (var file in matchedFiles)
-            {
-                yield return new RecordFileItem($"3D：{Path.GetFileName(file)}", file, true);
-            }
-        }
+        // 保持空实现
     }
 
     private void ClearSelectedFiles()
     {
         _selectedFiles.Clear();
-        _sourceSymbolLibraryPath = null;
-        FootprintFilesBox.Clear();
-        FootprintFilesBox.ToolTip = null;
-        SourceSymbolLibraryBox.Clear();
-        SourceSymbolLibraryBox.ToolTip = null;
-        Model3DFileBox.Clear();
-        Model3DFileBox.ToolTip = null;
-        PinFileBox.Clear();
-        PinFileBox.ToolTip = null;
+        FootprintFilesBox.Text = string.Empty;
+        SourceSymbolLibraryBox.Text = string.Empty;
+        Model3DFileBox.Text = string.Empty;
+        PinFileBox.Text = string.Empty;
     }
 
     private void ClearRecordFiles()
     {
-        SymbolFilesPanel.Children.Clear();
-        FootprintFilesPanel.Children.Clear();
-        Model3DFilesPanel.Children.Clear();
         SymbolFilesGroupBox.Visibility = Visibility.Collapsed;
         FootprintFilesGroupBox.Visibility = Visibility.Collapsed;
         Model3DFilesGroupBox.Visibility = Visibility.Collapsed;
     }
 
-    private void RecordFileButton_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void SetSelectedFiles(FileColumnKind kind, List<string> files)
     {
-        if (sender is not Button { Tag: RecordFileItem item })
-        {
-            return;
-        }
-
-        try
-        {
-            if ((Keyboard.Modifiers & ModifierKeys.Alt) == ModifierKeys.Alt)
-            {
-                OpenRecordFilePath(item.Path);
-                e.Handled = true;
-                return;
-            }
-
-            if (e.ClickCount >= 2)
-            {
-                OpenRecordFile(item.Path);
-                e.Handled = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            ShowError("打开文件失败：" + ex.Message);
-        }
-    }
-
-    private void OpenRecordFile(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-
-        if (File.Exists(path))
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = path,
-                UseShellExecute = true
-            });
-            return;
-        }
-
-        var directory = Path.GetDirectoryName(path);
-        if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
-        {
-            OpenRecordFilePath(path);
-            return;
-        }
-
-        MessageBox.Show(this, "找不到对应文件或目录。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-    }
-
-    private void OpenRecordFilePath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-
-        var directory = File.Exists(path) ? Path.GetDirectoryName(path) : Path.GetDirectoryName(path) ?? path;
-        if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
-        {
-            var arguments = File.Exists(path)
-                ? $"/select,\"{path}\""
-                : $"\"{directory}\"";
-
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "explorer.exe",
-                Arguments = arguments,
-                UseShellExecute = true
-            });
-            return;
-        }
-
-        try
-        {
-            MessageBox.Show(this, "找不到对应文件或目录。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-        catch (Exception ex)
-        {
-            ShowError("打开文件失败：" + ex.Message);
-        }
+        _selectedFiles[kind] = files;
     }
 
     private void ApplySelectedFilesToForm()
     {
-        ApplySelectedFileToForm(FileColumnKind.Footprint);
-        ApplySelectedFileToForm(FileColumnKind.Model3D);
+        if (IsStandardPartMode) return;
+
+        foreach (var column in _columns)
+        {
+            var kind = GetFileColumnKind(column.Name);
+            if (kind != FileColumnKind.None && _selectedFiles.TryGetValue(kind, out var files) && files.Count > 0)
+            {
+                ApplySelectedFileToForm(column.Name, kind, files);
+            }
+        }
     }
 
-    private void ApplySelectedFileToForm(FileColumnKind kind)
+    private void ApplySelectedFileToForm(string columnName, FileColumnKind kind, IReadOnlyList<string> files)
     {
-        if (kind == FileColumnKind.Pin || !_selectedFiles.TryGetValue(kind, out var files) || files.Count == 0)
-        {
-            return;
-        }
+        var previewFiles = GetDatabaseSourceFiles(files, kind).ToList();
+        if (previewFiles.Count == 0) return;
 
-        var columnName = _columns.Select(c => c.Name).FirstOrDefault(name => GetFileColumnKind(name) == kind);
-        if (columnName is null || !_inputs.ContainsKey(columnName))
+        if (kind == FileColumnKind.Symbol)
         {
-            return;
+            var libName = Path.GetFileNameWithoutExtension(previewFiles[0]);
+            var symbolName = libName;
+            SetInputValue(columnName, $"{libName}\\{symbolName}");
         }
-
-        var databaseFiles = GetDatabaseSourceFiles(files, kind);
-        SetInputValue(columnName, string.Join(",", databaseFiles.Select(GetStoredPreviewValue)));
-
-        if (_inputs.TryGetValue(columnName, out var input) && input is TextBox textBox)
+        else
         {
-            textBox.ToolTip = string.Join(Environment.NewLine, databaseFiles);
+            var value = string.Join(",", previewFiles.Select(Path.GetFileNameWithoutExtension));
+            SetInputValue(columnName, value);
         }
+    }
+
+    private void ApplySymbolValueToForm(ComboBox comboBox, string targetLibraryName, string symbolName)
+    {
+        var cleanLibraryName = RemoveFileExtension(targetLibraryName);
+        var cleanSymbolName = RemoveFileExtension(symbolName);
+        comboBox.Text = $"{cleanLibraryName}\\{cleanSymbolName}";
     }
 
     private string? GetSymbolDatabaseValue(string columnName)
     {
-        if (!_inputs.ContainsKey(columnName))
-        {
-            return null;
-        }
-
-        var symbolName = GetInputValue(columnName).Trim();
-        if (string.IsNullOrWhiteSpace(symbolName))
-        {
-            return null;
-        }
-
-        if (symbolName.Contains('\\') || symbolName.Contains('/'))
-        {
-            return symbolName.Replace('/', '\\');
-        }
-
-        var libraryName = GetSelectedSymbolLibraryName(columnName);
-        if (string.IsNullOrWhiteSpace(libraryName))
-        {
-            return symbolName;
-        }
-
-        return string.IsNullOrWhiteSpace(libraryName) ? symbolName : $"{libraryName}\\{symbolName}";
+        var text = GetInputValue(columnName);
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        return text;
     }
 
-    private void ApplySymbolValueToForm(string columnName, string value)
-    {
-        if (_symbolLibraryInputs.TryGetValue(columnName, out var comboBox))
-        {
-            comboBox.SelectedItem = null;
-        }
-
-        var normalized = value.Replace('/', '\\');
-        var separatorIndex = normalized.IndexOf('\\');
-        if (separatorIndex <= 0)
-        {
-            SetInputValue(columnName, value);
-            return;
-        }
-
-        var libraryName = normalized[..separatorIndex];
-        var symbolName = normalized[(separatorIndex + 1)..];
-
-        if (_symbolLibraryInputs.TryGetValue(columnName, out comboBox))
-        {
-            var expectedFileName = libraryName.EndsWith(".olb", StringComparison.OrdinalIgnoreCase) ? libraryName : libraryName + ".olb";
-            var matchedItem = comboBox.Items.Cast<object?>()
-                .Select(item => item?.ToString())
-                .FirstOrDefault(item => string.Equals(item, expectedFileName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(RemoveFileExtension(item ?? string.Empty), libraryName, StringComparison.OrdinalIgnoreCase));
-
-            if (!string.IsNullOrWhiteSpace(matchedItem))
-            {
-                comboBox.SelectedItem = matchedItem;
-            }
-        }
-
-        SetInputValue(columnName, symbolName);
-    }
-
-    private string? GetSelectedSymbolLibraryName(string columnName)
-    {
-        if (_symbolLibraryInputs.TryGetValue(columnName, out var comboBox))
-        {
-            var fileName = comboBox.SelectedItem?.ToString();
-            return string.IsNullOrWhiteSpace(fileName) ? null : RemoveFileExtension(fileName);
-        }
-
-        var targetPath = GetCurrentTargetSymbolLibraryPath();
-        if (string.IsNullOrWhiteSpace(targetPath))
-        {
-            return null;
-        }
-
-        return RemoveFileExtension(Path.GetFileName(targetPath));
-    }
-
-    private static IReadOnlyList<string> GetDatabaseSourceFiles(IReadOnlyList<string> files, FileColumnKind kind)
+    private static IEnumerable<string> GetDatabaseSourceFiles(IEnumerable<string> files, FileColumnKind kind)
     {
         if (kind == FileColumnKind.Footprint)
         {
-            var psmFiles = files.Where(path => string.Equals(Path.GetExtension(path), ".psm", StringComparison.OrdinalIgnoreCase)).ToList();
-            if (psmFiles.Count > 0)
-            {
-                return psmFiles;
-            }
+            return files.Where(file => string.Equals(Path.GetExtension(file), ".psm", StringComparison.OrdinalIgnoreCase));
         }
-
-        return files.Count == 0 ? [] : [files[0]];
+        return files;
     }
 
-    private string GetStoredPreviewValue(string sourcePath)
+    private static string RemoveFileExtension(string fileName)
     {
-        var storedValue = _settings.StoreRelativeLibraryFileName ? Path.GetFileName(sourcePath) : sourcePath;
-        return RemoveFileExtension(storedValue);
-    }
-
-    private static string RemoveFileExtension(string value)
-    {
-        return Path.ChangeExtension(value, null) ?? value;
+        return Path.GetFileNameWithoutExtension(fileName);
     }
 
     private FileColumnKind GetFileColumnKind(string columnName)
     {
-        if (MatchesConfiguredColumn(columnName, _settings.FootprintColumnNames))
-        {
-            return FileColumnKind.Footprint;
-        }
-
-        if (MatchesConfiguredColumn(columnName, _settings.SymbolColumnNames))
-        {
-            return FileColumnKind.Symbol;
-        }
-
-        if (MatchesConfiguredColumn(columnName, _settings.Model3DColumnNames))
-        {
-            return FileColumnKind.Model3D;
-        }
-
+        if (MatchesConfiguredColumn(columnName, _settings.FootprintColumnNames)) return FileColumnKind.Footprint;
+        if (MatchesConfiguredColumn(columnName, _settings.SymbolColumnNames)) return FileColumnKind.Symbol;
+        if (MatchesConfiguredColumn(columnName, _settings.Model3DColumnNames)) return FileColumnKind.Model3D;
         return FileColumnKind.None;
     }
 
-    private static bool MatchesConfiguredColumn(string columnName, IEnumerable<string>? candidates)
+    private static bool MatchesConfiguredColumn(string columnName, IEnumerable<string> configuredNames)
     {
-        return (candidates ?? []).Any(candidate => string.Equals(NormalizeColumnName(candidate), NormalizeColumnName(columnName), StringComparison.OrdinalIgnoreCase));
+        var normalized = NormalizeColumnName(columnName);
+        return configuredNames.Any(c => string.Equals(NormalizeColumnName(c), normalized, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string NormalizeColumnName(string value)
+    private static string NormalizeColumnName(string name)
     {
-        return value.Replace(" ", string.Empty).Replace("_", string.Empty).Replace("-", string.Empty);
-    }
-
-    private string? ResolveTableNameByPartNumber(string partNumber)
-    {
-        var matched = _settings.TablePartNumberPrefixes
-            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
-            .OrderByDescending(pair => pair.Value.Length)
-            .FirstOrDefault(pair => partNumber.StartsWith(pair.Value, StringComparison.OrdinalIgnoreCase));
-
-        return string.IsNullOrWhiteSpace(matched.Key) ? null : matched.Key;
-    }
-
-    private async Task SelectTableAsync(string tableName)
-    {
-        if (TableComboBox.ItemsSource is null)
-        {
-            await RefreshTablesAsync();
-        }
-
-        if (TableComboBox.ItemsSource is IEnumerable<string> tables)
-        {
-            var matched = tables.FirstOrDefault(item => string.Equals(item, tableName, StringComparison.OrdinalIgnoreCase));
-            if (matched is null)
-            {
-                throw new InvalidOperationException($"在当前数据库中找不到表：{tableName}");
-            }
-
-            if (!string.Equals(TableComboBox.SelectedItem?.ToString(), matched, StringComparison.OrdinalIgnoreCase))
-            {
-                TableComboBox.SelectedItem = matched;
-            }
-        }
-    }
-
-    private async Task RefreshTablesAsync()
-    {
-        var tables = await _databaseService.GetTablesAsync(_settings);
-        TableComboBox.ItemsSource = tables;
-        if (tables.Count > 0)
-        {
-            TableComboBox.SelectedIndex = 0;
-        }
-        else
-        {
-            ClearDynamicForm();
-        }
+        return name.Replace(" ", string.Empty).Replace("_", string.Empty);
     }
 
     private string GetSelectedTableName()
     {
-        return TableComboBox.SelectedItem?.ToString() ?? throw new InvalidOperationException("请先选择数据库表。");
+        return TableComboBox.SelectedItem?.ToString() ?? string.Empty;
     }
 
     private FileConflictAction ResolveFileConflict(string destinationPath)
     {
-        var dialog = new Window
+        var fileName = Path.GetFileName(destinationPath);
+        var conflictMsg = $"文件已存在：{fileName}\r\n\r\n是否覆盖？\r\n- 点击“是”覆盖当前文件\r\n- 点击“否”保留已有文件跳过拷贝\r\n- 点击“取消”终止本次入库";
+        var result = MessageBox.Show(this, conflictMsg, "文件冲突处理", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+        return result switch
         {
-            Title = "文件已存在",
-            Owner = this,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ResizeMode = ResizeMode.NoResize,
-            SizeToContent = SizeToContent.WidthAndHeight
+            MessageBoxResult.Yes => FileConflictAction.Overwrite,
+            MessageBoxResult.No => FileConflictAction.Skip,
+            _ => FileConflictAction.Cancel
         };
-
-        var panel = new StackPanel { Margin = new Thickness(16) };
-        panel.Children.Add(new TextBlock { Text = "目标文件已存在：" + destinationPath, TextWrapping = TextWrapping.Wrap, MaxWidth = 520, Margin = new Thickness(0, 0, 0, 12) });
-        panel.Children.Add(new TextBlock { Text = "请选择处理方式。", Margin = new Thickness(0, 0, 0, 12) });
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        AddConflictButton(buttons, dialog, "覆盖", FileConflictAction.Overwrite);
-        AddConflictButton(buttons, dialog, "自动重命名", FileConflictAction.Rename);
-        AddConflictButton(buttons, dialog, "跳过", FileConflictAction.Skip);
-        AddConflictButton(buttons, dialog, "取消", FileConflictAction.Cancel);
-        panel.Children.Add(buttons);
-        dialog.Content = panel;
-        dialog.ShowDialog();
-        return dialog.Tag is FileConflictAction action ? action : FileConflictAction.Cancel;
-    }
-
-    private static void AddConflictButton(Panel panel, Window dialog, string text, FileConflictAction action)
-    {
-        var button = new Button { Content = text, MinWidth = 86, Margin = new Thickness(8, 0, 0, 0) };
-        button.Click += (_, _) =>
-        {
-            dialog.Tag = action;
-            dialog.DialogResult = true;
-        };
-        panel.Children.Add(button);
     }
 
     private void SetStatus(string message)
@@ -1184,7 +1031,8 @@ public partial class MainWindow : Window
 
     private void ShowError(string message)
     {
-        SetStatus(message);
+        SetStatus("错误：" + message);
         MessageBox.Show(this, message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
     }
+    #endregion
 }

@@ -1,7 +1,7 @@
 <Window x:Class="CadenceCisLibraryManager.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="设置" Height="760" Width="900" MinHeight="640" MinWidth="760"
+        Title="系统设置" Height="820" Width="960" MinHeight="680" MinWidth="800"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="16">
         <Grid.RowDefinitions>
@@ -38,7 +38,28 @@
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="库路径" Margin="0,0,0,12" Padding="12">
+                <GroupBox Header="DigiKey 官方 API 凭据" Margin="0,0,0,12" Padding="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" VerticalAlignment="Center" Margin="0,0,8,8" />
+                        <TextBox Grid.Row="0" Grid.Column="1" x:Name="DigiKeyClientIdBox" Margin="0,0,8,8" ToolTip="DigiKey 开发者门户申请的 Client ID" />
+                        <Button Grid.Row="0" Grid.Column="2" Width="100" Margin="0,0,0,8" Content="测试凭据" Click="TestDigiKey_Click" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Client Secret" VerticalAlignment="Center" Margin="0,0,8,8" />
+                        <PasswordBox Grid.Row="1" Grid.Column="1" x:Name="DigiKeyClientSecretBox" Margin="0,0,8,8" ToolTip="DigiKey 开发者门户申请的 Client Secret (本地加密存储)" />
+                        <CheckBox Grid.Row="2" Grid.Column="1" x:Name="AutoEnrichLcscCheckBox" Content="自动级联立创补充 (现货库存、打样价格与 3D STEP)" IsChecked="True" />
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="共享库路径 (SMB 映射)" Margin="0,0,0,12" Padding="12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="120" />
@@ -73,11 +94,11 @@
                         <Button Grid.Row="3" Grid.Column="2" Width="36" Margin="0,0,0,8" Click="BrowsePinPath_Click" ToolTip="浏览">
                             <TextBlock Style="{StaticResource SymbolTextStyle}" Text="&#xE712;" Margin="0" HorizontalAlignment="Center" />
                         </Button>
-                        <CheckBox Grid.Row="4" Grid.Column="1" x:Name="StoreFileNameCheckBox" Content="数据库仅保存文件名" IsChecked="True" />
+                        <CheckBox Grid.Row="4" Grid.Column="1" x:Name="StoreFileNameCheckBox" Content="数据库仅保存文件名 (相对路径，严禁盘符硬编码)" IsChecked="True" />
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="数据库字段名" Margin="0,0,0,12" Padding="12">
+                <GroupBox Header="数据库字段名映射" Margin="0,0,0,12" Padding="12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="150" />
@@ -100,7 +121,27 @@
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="Part Number 前缀" Padding="12">
+                <GroupBox Header="标准料规则映射 (复用 DISCRETE 资产)" Margin="0,0,0,12" Padding="12">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="配置标准件对应的表、公共符号模板 (如 DISCRETE\RES) 与封装前缀：" Margin="0,0,0,8" Foreground="#666666" />
+                        <DataGrid Grid.Row="1" x:Name="StandardPartRulesGrid" Height="140" AutoGenerateColumns="False" CanUserAddRows="True" CanUserDeleteRows="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="数据库表名" Binding="{Binding TableName, UpdateSourceTrigger=PropertyChanged}" Width="120" />
+                                <DataGridTextColumn Header="显示名称" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="110" />
+                                <DataGridTextColumn Header="符号模板 (&lt;库&gt;\&lt;符号&gt;)" Binding="{Binding SymbolTemplate, UpdateSourceTrigger=PropertyChanged}" Width="160" />
+                                <DataGridTextColumn Header="封装前缀" Binding="{Binding FootprintPrefix, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+                                <DataGridTextColumn Header="3D模型前缀" Binding="{Binding Model3DPrefix, UpdateSourceTrigger=PropertyChanged}" Width="90" />
+                                <DataGridTextColumn Header="默认位号" Binding="{Binding DefaultReference, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="高级料号生成规则与防呆校验" Padding="12">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="150" />
@@ -110,15 +151,20 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="ID 位数" VerticalAlignment="Center" Margin="0,0,8,8" />
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="默认 ID 位数" VerticalAlignment="Center" Margin="0,0,8,8" />
                         <TextBox Grid.Row="0" Grid.Column="1" x:Name="PartNumberIdWidthBox" Width="120" HorizontalAlignment="Left" Margin="0,0,0,8" />
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="表前缀" VerticalAlignment="Center" Margin="0,0,8,8" />
-                        <Button Grid.Row="1" Grid.Column="1" Content="刷新表名" Width="90" HorizontalAlignment="Left" Margin="0,0,0,8" Click="RefreshTablePrefixes_Click" />
-                        <DataGrid Grid.Row="2" Grid.Column="1" x:Name="TablePrefixesGrid" Height="180" AutoGenerateColumns="False" CanUserAddRows="True" CanUserDeleteRows="True">
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="表配置" VerticalAlignment="Center" Margin="0,0,8,8" />
+                        <Button Grid.Row="1" Grid.Column="1" Content="从数据库刷新表名" Width="130" HorizontalAlignment="Left" Margin="0,0,0,8" Click="RefreshTablePrefixes_Click" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="支持模板变量: {PREFIX}, {PKG}, {VAL}, {SEQ:5}, {DATE:yyMM} 等；并可配置防呆正则。" Margin="0,0,0,6" Foreground="#666666" />
+                        <DataGrid Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" x:Name="TablePrefixesGrid" Height="180" AutoGenerateColumns="False" CanUserAddRows="True" CanUserDeleteRows="True">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="表名" Binding="{Binding TableName, UpdateSourceTrigger=PropertyChanged}" Width="*" />
-                                <DataGridTextColumn Header="前缀" Binding="{Binding Prefix, UpdateSourceTrigger=PropertyChanged}" Width="160" />
+                                <DataGridTextColumn Header="表名" Binding="{Binding TableName, UpdateSourceTrigger=PropertyChanged}" Width="120" />
+                                <DataGridTextColumn Header="前缀 {PREFIX}" Binding="{Binding Prefix, UpdateSourceTrigger=PropertyChanged}" Width="100" />
+                                <DataGridTextColumn Header="生成模板 (Pattern)" Binding="{Binding PatternTemplate, UpdateSourceTrigger=PropertyChanged}" Width="180" />
+                                <DataGridTextColumn Header="校验正则 (Regex)" Binding="{Binding ValidationRegex, UpdateSourceTrigger=PropertyChanged}" Width="160" />
+                                <DataGridTextColumn Header="错误提示" Binding="{Binding RegexErrorMessage, UpdateSourceTrigger=PropertyChanged}" Width="*" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>

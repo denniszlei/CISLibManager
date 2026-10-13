@@ -1,4 +1,4 @@
-﻿namespace CadenceCisLibraryManager.Models;
+namespace CadenceCisLibraryManager.Models;
 
 public sealed class AppSettings
 {
@@ -33,4 +33,17 @@ public sealed class AppSettings
     public List<string> Model3DColumnNames { get; set; } = ["3D Model", "Model3D", "StepModel", "模型", "三维模型"];
 
     public Dictionary<string, string> TablePartNumberPrefixes { get; set; } = [];
+
+    // DigiKey API 凭据 (本地加密保存，杜绝泄露)
+    public string DigiKeyClientId { get; set; } = string.Empty;
+
+    public string DigiKeyClientSecret { get; set; } = string.Empty;
+
+    public bool AutoEnrichWithLcsc { get; set; } = true;
+
+    // 标准料映射规则
+    public List<StandardPartRule> StandardPartRules { get; set; } = StandardPartRule.GetDefaultRules();
+
+    // 高级料号生成与校验规则字典 (Key: 表名)
+    public Dictionary<string, PartNumberRule> TablePartNumberRules { get; set; } = [];
 }

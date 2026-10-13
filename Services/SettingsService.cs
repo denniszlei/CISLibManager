@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -48,11 +48,16 @@ public sealed class SettingsService
 
     private static (AppSettings Settings, bool PasswordDecryptionFailed) ToAppSettings(PersistedAppSettings persisted)
     {
-        var decryptedPassword = DecryptPassword(persisted.EncryptedPassword);
+        var decryptedPassword = DecryptSecret(persisted.EncryptedPassword);
         var passwordDecryptionFailed = !string.IsNullOrWhiteSpace(persisted.EncryptedPassword) && decryptedPassword is null;
         var password = !string.IsNullOrWhiteSpace(persisted.EncryptedPassword)
             ? decryptedPassword ?? string.Empty
             : persisted.Password;
+
+        var decryptedDigiKeySecret = DecryptSecret(persisted.EncryptedDigiKeyClientSecret);
+        var digiKeySecret = !string.IsNullOrWhiteSpace(persisted.EncryptedDigiKeyClientSecret)
+            ? decryptedDigiKeySecret ?? string.Empty
+            : persisted.DigiKeyClientSecret;
 
         return (new AppSettings
         {
@@ -71,7 +76,12 @@ public sealed class SettingsService
             FootprintColumnNames = persisted.FootprintColumnNames,
             SymbolColumnNames = persisted.SymbolColumnNames,
             Model3DColumnNames = persisted.Model3DColumnNames,
-            TablePartNumberPrefixes = persisted.TablePartNumberPrefixes
+            TablePartNumberPrefixes = persisted.TablePartNumberPrefixes,
+            DigiKeyClientId = persisted.DigiKeyClientId,
+            DigiKeyClientSecret = digiKeySecret,
+            AutoEnrichWithLcsc = persisted.AutoEnrichWithLcsc,
+            StandardPartRules = persisted.StandardPartRules.Count > 0 ? persisted.StandardPartRules : StandardPartRule.GetDefaultRules(),
+            TablePartNumberRules = persisted.TablePartNumberRules
         }, passwordDecryptionFailed);
     }
 
@@ -84,7 +94,7 @@ public sealed class SettingsService
             Database = settings.Database,
             UserId = settings.UserId,
             Password = string.Empty,
-            EncryptedPassword = EncryptPassword(settings.Password),
+            EncryptedPassword = EncryptSecret(settings.Password),
             FootprintLibraryPath = settings.FootprintLibraryPath,
             SymbolLibraryPath = settings.SymbolLibraryPath,
             Model3DLibraryPath = settings.Model3DLibraryPath,
@@ -95,42 +105,51 @@ public sealed class SettingsService
             FootprintColumnNames = [.. settings.FootprintColumnNames],
             SymbolColumnNames = [.. settings.SymbolColumnNames],
             Model3DColumnNames = [.. settings.Model3DColumnNames],
-            TablePartNumberPrefixes = settings.TablePartNumberPrefixes.ToDictionary()
+            TablePartNumberPrefixes = settings.TablePartNumberPrefixes.ToDictionary(),
+            DigiKeyClientId = settings.DigiKeyClientId,
+            DigiKeyClientSecret = string.Empty,
+            EncryptedDigiKeyClientSecret = EncryptSecret(settings.DigiKeyClientSecret),
+            AutoEnrichWithLcsc = settings.AutoEnrichWithLcsc,
+            StandardPartRules = [.. settings.StandardPartRules],
+            TablePartNumberRules = settings.TablePartNumberRules.ToDictionary()
         };
     }
 
-    private static string EncryptPassword(string? password)
+    private static string EncryptSecret(string? plainText)
     {
-        if (string.IsNullOrEmpty(password))
+        if (string.IsNullOrEmpty(plainText))
         {
             return string.Empty;
         }
 
-        var plainBytes = Encoding.UTF8.GetBytes(password);
-        var cipherBytes = ProtectedData.Protect(plainBytes, null, DataProtectionScope.CurrentUser);
-        return Convert.ToBase64String(cipherBytes);
+        try
+        {
+            var plainBytes = Encoding.UTF8.GetBytes(plainText);
+            var cipherBytes = ProtectedData.Protect(plainBytes, null, DataProtectionScope.CurrentUser);
+            return Convert.ToBase64String(cipherBytes);
+        }
+        catch
+        {
+            return plainText; // 兼容非 Windows 或降级
+        }
     }
 
-    private static string? DecryptPassword(string? encryptedPassword)
+    private static string? DecryptSecret(string? encryptedText)
     {
-        if (string.IsNullOrWhiteSpace(encryptedPassword))
+        if (string.IsNullOrWhiteSpace(encryptedText))
         {
             return null;
         }
 
         try
         {
-            var cipherBytes = Convert.FromBase64String(encryptedPassword);
+            var cipherBytes = Convert.FromBase64String(encryptedText);
             var plainBytes = ProtectedData.Unprotect(cipherBytes, null, DataProtectionScope.CurrentUser);
             return Encoding.UTF8.GetString(plainBytes);
         }
-        catch (FormatException)
+        catch
         {
-            return null;
-        }
-        catch (CryptographicException)
-        {
-            return null;
+            return encryptedText; // 降级
         }
     }
 
@@ -169,5 +188,17 @@ public sealed class SettingsService
         public List<string> Model3DColumnNames { get; set; } = ["3D Model", "Model3D", "StepModel", "模型", "三维模型"];
 
         public Dictionary<string, string> TablePartNumberPrefixes { get; set; } = [];
+
+        public string DigiKeyClientId { get; set; } = string.Empty;
+
+        public string DigiKeyClientSecret { get; set; } = string.Empty;
+
+        public string EncryptedDigiKeyClientSecret { get; set; } = string.Empty;
+
+        public bool AutoEnrichWithLcsc { get; set; } = true;
+
+        public List<StandardPartRule> StandardPartRules { get; set; } = [];
+
+        public Dictionary<string, PartNumberRule> TablePartNumberRules { get; set; } = [];
     }
 }

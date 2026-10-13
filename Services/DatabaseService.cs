@@ -77,7 +77,44 @@ public sealed class DatabaseService
         return columns.Select(c => c.Name).FirstOrDefault(name => MatchesConfiguredColumn(name, settings.PartNumberColumnNames));
     }
 
+    public string? FindSymbolColumn(IEnumerable<ColumnInfo> columns, AppSettings settings)
+    {
+        return columns.Select(c => c.Name).FirstOrDefault(name => MatchesConfiguredColumn(name, settings.SymbolColumnNames));
+    }
+
+    public string? FindFootprintColumn(IEnumerable<ColumnInfo> columns, AppSettings settings)
+    {
+        return columns.Select(c => c.Name).FirstOrDefault(name => MatchesConfiguredColumn(name, settings.FootprintColumnNames));
+    }
+
+    public string? FindModel3DColumn(IEnumerable<ColumnInfo> columns, AppSettings settings)
+    {
+        return columns.Select(c => c.Name).FirstOrDefault(name => MatchesConfiguredColumn(name, settings.Model3DColumnNames));
+    }
+
+    public async Task<IReadOnlyDictionary<string, string?>?> FindRowByPartNumberAsync(AppSettings settings, string tableName, string partNumberColumn, string partNumberValue, IReadOnlyList<ColumnInfo>? columns = null)
+    {
+        columns ??= await GetColumnsAsync(settings, tableName);
+        return await GetSingleRowByColumnAsync(settings, tableName, partNumberColumn, partNumberValue, columns);
+    }
+
+    public async Task<long> GetNextAutoIncrementIdAsync(AppSettings settings, string tableName)
+    {
+        await using var connection = await OpenConnectionAsync(settings);
+        const string sql = "select auto_increment from information_schema.tables where table_schema = database() and table_name = @tableName";
+        await using var command = new MySqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@tableName", tableName);
+        var value = await command.ExecuteScalarAsync();
+        if (value is null || value == DBNull.Value)
+        {
+            throw new InvalidOperationException($"表 {tableName} 没有可用的 AUTO_INCREMENT ID，无法生成 Part Number。");
+        }
+
+        return Convert.ToInt64(value);
+    }
+
     public async Task<string> GenerateNextPartNumberAsync(AppSettings settings, string tableName)
+
     {
         await using var connection = await OpenConnectionAsync(settings);
         const string sql = "select auto_increment from information_schema.tables where table_schema = database() and table_name = @tableName";

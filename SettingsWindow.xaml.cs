@@ -11,18 +11,50 @@ namespace CadenceCisLibraryManager;
 public partial class SettingsWindow : Window
 {
     private readonly DatabaseService _databaseService = new();
+    private readonly DigiKeyService _digiKeyService = new();
     private readonly AppSettings _settings;
-    private readonly ObservableCollection<TablePrefixRow> _tablePrefixRows = [];
+    private readonly ObservableCollection<TableRuleRow> _tableRuleRows = [];
+    private readonly ObservableCollection<StandardPartRule> _standardPartRuleRows = [];
 
     public SettingsWindow(AppSettings settings)
     {
         InitializeComponent();
         _settings = settings;
-        TablePrefixesGrid.ItemsSource = _tablePrefixRows;
+        TablePrefixesGrid.ItemsSource = _tableRuleRows;
+        StandardPartRulesGrid.ItemsSource = _standardPartRuleRows;
         ApplySettingsToUi();
     }
 
     public AppSettings Settings => _settings;
+
+    private async void TestDigiKey_Click(object sender, RoutedEventArgs e)
+    {
+        var clientId = DigiKeyClientIdBox.Text.Trim();
+        var clientSecret = DigiKeyClientSecretBox.Password.Trim();
+
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+        {
+            MessageBox.Show(this, "请先输入 Client ID 与 Client Secret。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            var success = await _digiKeyService.TestCredentialsAsync(clientId, clientSecret);
+            if (success)
+            {
+                MessageBox.Show(this, "DigiKey OAuth2 鉴权成功！凭据有效。", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(this, "DigiKey 鉴权失败，请检查 Client ID 与 Secret 是否正确。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "测试发生异常：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
@@ -62,13 +94,20 @@ public partial class SettingsWindow : Window
         try
         {
             ReadSettingsFromUi();
-            var existingPrefixes = ReadTablePrefixesFromGrid();
+            var existingRules = ReadTableRulesFromGrid();
             var tables = await _databaseService.GetTablesAsync(_settings);
-            _tablePrefixRows.Clear();
+            _tableRuleRows.Clear();
             foreach (var table in tables)
             {
-                existingPrefixes.TryGetValue(table, out var prefix);
-                _tablePrefixRows.Add(new TablePrefixRow { TableName = table, Prefix = prefix ?? string.Empty });
+                existingRules.TryGetValue(table, out var rule);
+                _tableRuleRows.Add(new TableRuleRow
+                {
+                    TableName = table,
+                    Prefix = rule?.Prefix ?? string.Empty,
+                    PatternTemplate = rule?.PatternTemplate ?? "{PREFIX}-{SEQ:5}",
+                    ValidationRegex = rule?.ValidationRegex ?? string.Empty,
+                    RegexErrorMessage = rule?.RegexErrorMessage ?? string.Empty
+                });
             }
         }
         catch (Exception ex)
@@ -108,10 +147,37 @@ public partial class SettingsWindow : Window
         FootprintColumnsBox.Text = JoinNames(_settings.FootprintColumnNames);
         SymbolColumnsBox.Text = JoinNames(_settings.SymbolColumnNames);
         Model3DColumnsBox.Text = JoinNames(_settings.Model3DColumnNames);
-        _tablePrefixRows.Clear();
-        foreach (var pair in _settings.TablePartNumberPrefixes.OrderBy(pair => pair.Key))
+
+        DigiKeyClientIdBox.Text = _settings.DigiKeyClientId;
+        DigiKeyClientSecretBox.Password = _settings.DigiKeyClientSecret;
+        AutoEnrichLcscCheckBox.IsChecked = _settings.AutoEnrichWithLcsc;
+
+        _standardPartRuleRows.Clear();
+        foreach (var rule in _settings.StandardPartRules)
         {
-            _tablePrefixRows.Add(new TablePrefixRow { TableName = pair.Key, Prefix = pair.Value });
+            _standardPartRuleRows.Add(rule);
+        }
+
+        _tableRuleRows.Clear();
+        var allTables = new HashSet<string>(_settings.TablePartNumberPrefixes.Keys, StringComparer.OrdinalIgnoreCase);
+        foreach (var key in _settings.TablePartNumberRules.Keys)
+        {
+            allTables.Add(key);
+        }
+
+        foreach (var tableName in allTables.OrderBy(t => t))
+        {
+            _settings.TablePartNumberPrefixes.TryGetValue(tableName, out var prefix);
+            _settings.TablePartNumberRules.TryGetValue(tableName, out var partRule);
+
+            _tableRuleRows.Add(new TableRuleRow
+            {
+                TableName = tableName,
+                Prefix = prefix ?? string.Empty,
+                PatternTemplate = partRule?.PatternTemplate ?? "{PREFIX}-{SEQ:5}",
+                ValidationRegex = partRule?.ValidationRegex ?? string.Empty,
+                RegexErrorMessage = partRule?.RegexErrorMessage ?? string.Empty
+            });
         }
     }
 
@@ -142,7 +208,22 @@ public partial class SettingsWindow : Window
         _settings.FootprintColumnNames = SplitNames(FootprintColumnsBox.Text);
         _settings.SymbolColumnNames = SplitNames(SymbolColumnsBox.Text);
         _settings.Model3DColumnNames = SplitNames(Model3DColumnsBox.Text);
-        _settings.TablePartNumberPrefixes = ReadTablePrefixesFromGrid();
+
+        _settings.DigiKeyClientId = DigiKeyClientIdBox.Text.Trim();
+        _settings.DigiKeyClientSecret = DigiKeyClientSecretBox.Password.Trim();
+        _settings.AutoEnrichWithLcsc = AutoEnrichLcscCheckBox.IsChecked == true;
+
+        _settings.StandardPartRules = [.. _standardPartRuleRows.Where(r => !string.IsNullOrWhiteSpace(r.TableName))];
+
+        var rulesDict = ReadTableRulesFromGrid();
+        _settings.TablePartNumberPrefixes = rulesDict.ToDictionary(k => k.Key, v => v.Value.Prefix);
+        _settings.TablePartNumberRules = rulesDict.ToDictionary(k => k.Key, v => new PartNumberRule
+        {
+            TableName = v.Key,
+            PatternTemplate = v.Value.PatternTemplate,
+            ValidationRegex = v.Value.ValidationRegex,
+            RegexErrorMessage = v.Value.RegexErrorMessage
+        });
     }
 
     private static string JoinNames(IEnumerable<string> names)
@@ -155,10 +236,10 @@ public partial class SettingsWindow : Window
         return value.Split([',', ';', '，', '；'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
     }
 
-    private Dictionary<string, string> ReadTablePrefixesFromGrid()
+    private Dictionary<string, TableRuleRow> ReadTableRulesFromGrid()
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in _tablePrefixRows)
+        var result = new Dictionary<string, TableRuleRow>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in _tableRuleRows)
         {
             var tableName = row.TableName.Trim();
             if (tableName.Length == 0)
@@ -166,16 +247,22 @@ public partial class SettingsWindow : Window
                 continue;
             }
 
-            result[tableName] = row.Prefix.Trim();
+            result[tableName] = row;
         }
 
         return result;
     }
 
-    public sealed class TablePrefixRow
+    public sealed class TableRuleRow
     {
         public string TableName { get; set; } = string.Empty;
 
         public string Prefix { get; set; } = string.Empty;
+
+        public string PatternTemplate { get; set; } = "{PREFIX}-{SEQ:5}";
+
+        public string ValidationRegex { get; set; } = string.Empty;
+
+        public string RegexErrorMessage { get; set; } = string.Empty;
     }
 }
