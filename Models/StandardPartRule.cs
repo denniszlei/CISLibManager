@@ -14,14 +14,14 @@ public sealed class StandardPartRule
 
     public string DefaultReference { get; set; } = string.Empty;
 
-    public List<string> SupportedPackages { get; set; } = ["0201", "0402", "0603", "0805", "1206", "1210", "2512"];
+    public List<string> SupportedPackages { get; set; } = ["0201", "0402", "0603", "0805", "1206", "1210", "2512", "3216", "3528"];
 
     public static List<StandardPartRule> GetDefaultRules() =>
     [
         new StandardPartRule
         {
-            TableName = "resistors",
-            DisplayName = "贴片电阻",
+            TableName = "cis_10_resistor",
+            DisplayName = "10 Resistor (电阻)",
             SymbolTemplate = @"DISCRETE\RES",
             FootprintPrefix = "R",
             Model3DPrefix = "R",
@@ -29,8 +29,8 @@ public sealed class StandardPartRule
         },
         new StandardPartRule
         {
-            TableName = "capacitors",
-            DisplayName = "贴片陶瓷电容",
+            TableName = "cis_11_capacitor",
+            DisplayName = "11 Capacitor (电容)",
             SymbolTemplate = @"DISCRETE\CAP",
             FootprintPrefix = "C",
             Model3DPrefix = "C",
@@ -38,8 +38,8 @@ public sealed class StandardPartRule
         },
         new StandardPartRule
         {
-            TableName = "inductors",
-            DisplayName = "贴片电感",
+            TableName = "cis_09_inductor",
+            DisplayName = "09 Inductor (电感)",
             SymbolTemplate = @"DISCRETE\IND",
             FootprintPrefix = "L",
             Model3DPrefix = "L",

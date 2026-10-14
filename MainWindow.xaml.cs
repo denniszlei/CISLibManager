@@ -266,7 +266,9 @@ public partial class MainWindow : Window
 
         ApplyOnlineResultButton.IsEnabled = true;
         var statusAlert = item.IsObsolete ? "【⚠️ 停产淘汰】" : $"【{item.DisplayStatus}】";
-        SelectedResultSummary.Text = $"已选中: {item.ManufacturerProductNumber} ({item.Manufacturer}) {statusAlert} | 库存: {item.Stock ?? 0} | 价格: {item.Price ?? "--"}";
+        var suggestedTable = InferTargetTable(item);
+        var tableTip = !string.IsNullOrWhiteSpace(suggestedTable) ? $" | 推荐分类: {suggestedTable}" : string.Empty;
+        SelectedResultSummary.Text = $"已选中: {item.ManufacturerProductNumber} ({item.Manufacturer}) {statusAlert}{tableTip} | 库存: {item.Stock ?? 0} | 价格: {item.Price ?? "--"}";
         if (item.IsObsolete)
         {
             SelectedResultSummary.Foreground = new SolidColorBrush(Color.FromRgb(220, 38, 38));
@@ -281,6 +283,20 @@ public partial class MainWindow : Window
     {
         var item = SearchResultsGrid.SelectedItem as ComponentSearchResult;
         if (item == null) return;
+
+        // 智能分类识别与表格自动联动
+        var suggestedTable = InferTargetTable(item);
+        if (!string.IsNullOrWhiteSpace(suggestedTable) &&
+            !string.Equals(GetSelectedTableName(), suggestedTable, StringComparison.OrdinalIgnoreCase))
+        {
+            var match = TableComboBox.Items.Cast<object>()
+                .FirstOrDefault(o => o?.ToString()?.Contains(suggestedTable, StringComparison.OrdinalIgnoreCase) == true);
+            if (match != null)
+            {
+                TableComboBox.SelectedItem = match;
+                await EnsureColumnsLoadedAsync();
+            }
+        }
 
         if (item.IsObsolete)
         {
@@ -422,7 +438,169 @@ public partial class MainWindow : Window
 
     private StandardPartRule? GetStandardPartRuleForTable(string tableName)
     {
-        return _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrWhiteSpace(tableName)) return null;
+
+        var rule = _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
+        if (rule != null) return rule;
+
+        if (tableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("_10_", StringComparison.OrdinalIgnoreCase) || tableName.EndsWith("_10", StringComparison.OrdinalIgnoreCase))
+        {
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("resistor", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (tableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("_11_", StringComparison.OrdinalIgnoreCase) || tableName.EndsWith("_11", StringComparison.OrdinalIgnoreCase))
+        {
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (tableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("_09_", StringComparison.OrdinalIgnoreCase) || tableName.EndsWith("_09", StringComparison.OrdinalIgnoreCase))
+        {
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("inductor", StringComparison.OrdinalIgnoreCase));
+        }
+
+        return null;
+    }
+
+    private static string? InferTargetTable(ComponentSearchResult item)
+    {
+        var textToScan = $"{item.Category} {item.Description} {item.DetailedDescription} {item.ManufacturerProductNumber} " +
+                         string.Join(" ", item.Parameters.Keys) + " " + string.Join(" ", item.Parameters.Values);
+
+        // 10 Resistor
+        if (textToScan.Contains("Resistor", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Resistance", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("贴片电阻", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("电阻", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_10_resistor";
+        }
+
+        // 11 Capacitor
+        if (textToScan.Contains("Capacitor", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Capacitance", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("MLCC", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("POSCAP", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("贴片电容", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("电容", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_11_capacitor";
+        }
+
+        // 09 Inductor
+        if (textToScan.Contains("Inductor", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Inductance", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Ferrite Bead", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Choke", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("贴片电感", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("电感", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("磁珠", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_09_inductor";
+        }
+
+        // 07 Transistor/Diode
+        if (textToScan.Contains("MOSFET", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Transistor", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Diode", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("TVS", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("LED", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Schottky", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Zener", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("二极管", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("三极管", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_07_transistor_diode";
+        }
+
+        // 01 CPU/GPU/MCU/SOC
+        if (textToScan.Contains("Microcontroller", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Microprocessor", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains(" MCU", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("SoC", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("FPGA", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("DSP", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("单片机", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_01_cpu_mcu_soc";
+        }
+
+        // 03 DDR
+        if (textToScan.Contains("LPDDR", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("DDR4", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("DDR5", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("DDR3", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("SDRAM", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("DRAM", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_03_ddr";
+        }
+
+        // 05 Flash/ROM
+        if (textToScan.Contains("NOR Flash", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("NAND Flash", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("eMMC", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("EEPROM", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Flash", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("UFS", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_05_flash_rom";
+        }
+
+        // 06 Power IC
+        if (textToScan.Contains("PMIC", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Voltage Regulator", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Buck", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Boost", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("LDO", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Battery Charger", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("电源管理", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_06_power_ic";
+        }
+
+        // 12 Connector
+        if (textToScan.Contains("Connector", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Header", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Terminal", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Receptacle", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Type-C", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("USB", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("FPC", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("连接器", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("排针", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_12_connector";
+        }
+
+        // 04 Misc..
+        if (textToScan.Contains("Crystal", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Oscillator", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Switch", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Buzzer", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Fuse", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("晶振", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("按键", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("保险丝", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("蜂鸣器", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_04_misc";
+        }
+
+        // 02 Common IC
+        if (textToScan.Contains("Amplifier", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Op Amp", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Transceiver", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Interface", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("Logic", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("ADC", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("DAC", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("运放", StringComparison.OrdinalIgnoreCase) ||
+            textToScan.Contains("比较器", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cis_02_common_ic";
+        }
+
+        return null;
     }
 
     private void ApplyStandardPartMode(bool enable)
