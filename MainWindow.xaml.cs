@@ -443,19 +443,29 @@ public partial class MainWindow : Window
         var rule = _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
         if (rule != null) return rule;
 
-        if (tableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("_10_", StringComparison.OrdinalIgnoreCase) || tableName.EndsWith("_10", StringComparison.OrdinalIgnoreCase))
+        if (tableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("10", StringComparison.OrdinalIgnoreCase))
         {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("resistor", StringComparison.OrdinalIgnoreCase));
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("10", StringComparison.OrdinalIgnoreCase));
         }
 
-        if (tableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("_11_", StringComparison.OrdinalIgnoreCase) || tableName.EndsWith("_11", StringComparison.OrdinalIgnoreCase))
+        if (tableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("11", StringComparison.OrdinalIgnoreCase))
         {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase));
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("11", StringComparison.OrdinalIgnoreCase));
         }
 
-        if (tableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("_09_", StringComparison.OrdinalIgnoreCase) || tableName.EndsWith("_09", StringComparison.OrdinalIgnoreCase))
+        if (tableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("09", StringComparison.OrdinalIgnoreCase))
         {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("inductor", StringComparison.OrdinalIgnoreCase));
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("09", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (tableName.Contains("transistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("diode", StringComparison.OrdinalIgnoreCase) || tableName.Contains("07", StringComparison.OrdinalIgnoreCase))
+        {
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("transistor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("diode", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("07", StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (tableName.Contains("misc", StringComparison.OrdinalIgnoreCase) || tableName.Contains("04", StringComparison.OrdinalIgnoreCase))
+        {
+            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("misc", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("04", StringComparison.OrdinalIgnoreCase));
         }
 
         return null;
@@ -472,7 +482,7 @@ public partial class MainWindow : Window
             textToScan.Contains("贴片电阻", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("电阻", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_10_resistor";
+            return "10_resistor";
         }
 
         // 11 Capacitor
@@ -483,7 +493,7 @@ public partial class MainWindow : Window
             textToScan.Contains("贴片电容", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("电容", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_11_capacitor";
+            return "11_capacitor";
         }
 
         // 09 Inductor
@@ -495,7 +505,7 @@ public partial class MainWindow : Window
             textToScan.Contains("电感", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("磁珠", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_09_inductor";
+            return "09_inductor";
         }
 
         // 07 Transistor/Diode
@@ -509,7 +519,7 @@ public partial class MainWindow : Window
             textToScan.Contains("二极管", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("三极管", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_07_transistor_diode";
+            return "07_transistor_diode";
         }
 
         // 01 CPU/GPU/MCU/SOC
@@ -521,7 +531,7 @@ public partial class MainWindow : Window
             textToScan.Contains("DSP", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("单片机", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_01_cpu_mcu_soc";
+            return "01_cpu_mcu_soc";
         }
 
         // 03 DDR
@@ -532,7 +542,7 @@ public partial class MainWindow : Window
             textToScan.Contains("SDRAM", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("DRAM", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_03_ddr";
+            return "03_ddr";
         }
 
         // 05 Flash/ROM
@@ -543,7 +553,7 @@ public partial class MainWindow : Window
             textToScan.Contains("Flash", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("UFS", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_05_flash_rom";
+            return "05_flash_rom";
         }
 
         // 06 Power IC
@@ -555,7 +565,7 @@ public partial class MainWindow : Window
             textToScan.Contains("Battery Charger", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("电源管理", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_06_power_ic";
+            return "06_power_ic";
         }
 
         // 12 Connector
@@ -569,7 +579,7 @@ public partial class MainWindow : Window
             textToScan.Contains("连接器", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("排针", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_12_connector";
+            return "12_connector";
         }
 
         // 04 Misc..
@@ -583,7 +593,7 @@ public partial class MainWindow : Window
             textToScan.Contains("保险丝", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("蜂鸣器", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_04_misc";
+            return "04_misc";
         }
 
         // 02 Common IC
@@ -597,7 +607,7 @@ public partial class MainWindow : Window
             textToScan.Contains("运放", StringComparison.OrdinalIgnoreCase) ||
             textToScan.Contains("比较器", StringComparison.OrdinalIgnoreCase))
         {
-            return "cis_02_common_ic";
+            return "02_common_ic";
         }
 
         return null;
@@ -645,30 +655,155 @@ public partial class MainWindow : Window
         var rule = GetStandardPartRuleForTable(tableName);
         if (rule == null) return;
 
-        var cleanPkg = packageCode.Trim();
-        foreach (var p in rule.SupportedPackages)
-        {
-            if (cleanPkg.Contains(p, StringComparison.OrdinalIgnoreCase))
-            {
-                cleanPkg = p;
-                break;
-            }
-        }
+        var partTypeCol = _columns.FirstOrDefault(c => string.Equals(c.Name, "Part_Type", StringComparison.OrdinalIgnoreCase));
+        var currentPartType = partTypeCol != null && _inputs.ContainsKey(partTypeCol.Name) ? GetInputValue(partTypeCol.Name) : null;
 
-        var footprintName = rule.FootprintPrefix + cleanPkg;
-        var modelName = rule.Model3DPrefix + cleanPkg;
+        var (footprint, model3d, symbol, reference) = ResolveStandardFootprintAndModel(tableName, packageCode, rule, currentPartType);
 
         var footprintCol = _databaseService.FindFootprintColumn(_columns, _settings);
         if (footprintCol != null && _inputs.ContainsKey(footprintCol))
         {
-            SetInputValue(footprintCol, footprintName);
+            SetInputValue(footprintCol, footprint);
         }
 
         var modelCol = _databaseService.FindModel3DColumn(_columns, _settings);
         if (modelCol != null && _inputs.ContainsKey(modelCol))
         {
-            SetInputValue(modelCol, modelName);
+            SetInputValue(modelCol, model3d);
         }
+
+        if (!string.IsNullOrWhiteSpace(symbol))
+        {
+            var symbolCol = _databaseService.FindSymbolColumn(_columns, _settings);
+            if (symbolCol != null && _inputs.ContainsKey(symbolCol))
+            {
+                SetInputValue(symbolCol, symbol);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(reference))
+        {
+            var refCol = _columns.FirstOrDefault(c => string.Equals(c.Name, "Part_Reference", StringComparison.OrdinalIgnoreCase) || string.Equals(c.Name, "Reference", StringComparison.OrdinalIgnoreCase));
+            if (refCol != null && _inputs.ContainsKey(refCol.Name))
+            {
+                SetInputValue(refCol.Name, reference);
+            }
+        }
+    }
+
+    private static (string Footprint, string Model3D, string? Symbol, string? Ref) ResolveStandardFootprintAndModel(
+        string tableName, string packageCode, StandardPartRule? rule, string? partType = null)
+    {
+        var rawPkg = packageCode.Trim();
+        var cleanPkg = rawPkg.Replace("-", string.Empty).Replace("_", string.Empty).Replace(" ", string.Empty).ToUpperInvariant();
+
+        // 10 Resistor (电阻 / 排阻)
+        if (tableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("10", StringComparison.OrdinalIgnoreCase))
+        {
+            if (cleanPkg.Contains("0402X4") || cleanPkg.Contains("0402*4"))
+                return ("RESARRAY_0402X4", "RESARRAY_0402X4.step", @"DISCRETE\RES_NET_4", "RN");
+            if (cleanPkg.Contains("0603X4") || cleanPkg.Contains("0603*4"))
+                return ("RESARRAY_0603X4", "RESARRAY_0603X4.step", @"DISCRETE\RES_NET_4", "RN");
+
+            foreach (var size in new[] { "0201", "0402", "0603", "0805", "1206", "1210", "2010", "2512" })
+            {
+                if (cleanPkg.Contains(size))
+                    return ($"R{size}", $"R{size}.step", @"DISCRETE\RES", "R");
+            }
+        }
+
+        // 11 Capacitor (陶瓷 MLCC / 钽电容 / 固态电容)
+        if (tableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("11", StringComparison.OrdinalIgnoreCase))
+        {
+            if (cleanPkg.Contains("3216") || cleanPkg.Contains("EIAA") || cleanPkg.Contains("CASEA"))
+                return ("CAP_TANT_3216_A", "CAP_TANT_3216_A.step", @"DISCRETE\CAP_POL", "C");
+            if (cleanPkg.Contains("3528") || cleanPkg.Contains("EIAB") || cleanPkg.Contains("CASEB"))
+                return ("CAP_TANT_3528_B", "CAP_TANT_3528_B.step", @"DISCRETE\CAP_POL", "C");
+            if (cleanPkg.Contains("6032") || cleanPkg.Contains("EIAC") || cleanPkg.Contains("CASEC"))
+                return ("CAP_TANT_6032_C", "CAP_TANT_6032_C.step", @"DISCRETE\CAP_POL", "C");
+            if (cleanPkg.Contains("7343") || cleanPkg.Contains("EIAD") || cleanPkg.Contains("CASED"))
+                return ("CAP_TANT_7343_D", "CAP_TANT_7343_D.step", @"DISCRETE\CAP_POL", "C");
+
+            foreach (var size in new[] { "0201", "0402", "0603", "0805", "1206", "1210", "1812", "2220" })
+            {
+                if (cleanPkg.Contains(size))
+                    return ($"C{size}", $"C{size}.step", @"DISCRETE\CAP", "C");
+            }
+        }
+
+        // 09 Inductor (贴片电感 / 功率电感 / 磁珠)
+        if (tableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("09", StringComparison.OrdinalIgnoreCase))
+        {
+            var isBead = partType?.Contains("Bead", StringComparison.OrdinalIgnoreCase) == true ||
+                         rawPkg.Contains("Bead", StringComparison.OrdinalIgnoreCase) ||
+                         partType?.Contains("磁珠", StringComparison.OrdinalIgnoreCase) == true;
+
+            if (cleanPkg.Contains("4040") || cleanPkg.Contains("0440"))
+                return ("IND_4040", "IND_4040.step", @"DISCRETE\IND", "L");
+            if (cleanPkg.Contains("5050") || cleanPkg.Contains("0550"))
+                return ("IND_5050", "IND_5050.step", @"DISCRETE\IND", "L");
+            if (cleanPkg.Contains("6060") || cleanPkg.Contains("0660"))
+                return ("IND_6060", "IND_6060.step", @"DISCRETE\IND", "L");
+
+            foreach (var size in new[] { "0201", "0402", "0603", "0805", "1206" })
+            {
+                if (cleanPkg.Contains(size))
+                {
+                    return isBead
+                        ? ($"L{size}", $"L{size}.step", @"DISCRETE\BEAD", "FB")
+                        : ($"L{size}", $"L{size}.step", @"DISCRETE\IND", "L");
+                }
+            }
+        }
+
+        // 07 Transistor/Diode (二极管 / TVS / 发光二极管 / MOS / 三极管)
+        if (tableName.Contains("transistor", StringComparison.OrdinalIgnoreCase) ||
+            tableName.Contains("diode", StringComparison.OrdinalIgnoreCase) ||
+            tableName.Contains("07", StringComparison.OrdinalIgnoreCase))
+        {
+            if (cleanPkg.Contains("SOD123"))
+                return ("SOD123", "SOD123.step", @"DISCRETE\DIODE", "D");
+            if (cleanPkg.Contains("SOD323"))
+                return ("SOD323", "SOD323.step", @"DISCRETE\DIODE", "D");
+            if (cleanPkg.Contains("SOD523"))
+                return ("SOD523", "SOD523.step", @"DISCRETE\DIODE", "D");
+            if (cleanPkg.Contains("SMA") || cleanPkg.Contains("DO214AC"))
+                return ("SMA_DO214AC", "SMA_DO214AC.step", @"DISCRETE\DIODE", "D");
+            if (cleanPkg.Contains("SMB") || cleanPkg.Contains("DO214AA"))
+                return ("SMB_DO214AA", "SMB_DO214AA.step", @"DISCRETE\DIODE", "D");
+            if (cleanPkg.Contains("SMC") || cleanPkg.Contains("DO214AB"))
+                return ("SMC_DO214AB", "SMC_DO214AB.step", @"DISCRETE\DIODE", "D");
+            if (cleanPkg.Contains("SOT23"))
+                return ("SOT23", "SOT23.step", @"DISCRETE\TRANSISTOR", "Q");
+
+            var isLed = rawPkg.Contains("LED", StringComparison.OrdinalIgnoreCase) || partType?.Contains("LED", StringComparison.OrdinalIgnoreCase) == true;
+            if (isLed || cleanPkg.Contains("LED"))
+            {
+                foreach (var size in new[] { "0402", "0603", "0805", "1206" })
+                {
+                    if (cleanPkg.Contains(size))
+                        return ($"LED{size}", $"LED{size}.step", @"DISCRETE\LED", "LED");
+                }
+            }
+        }
+
+        // 04 Misc (无源晶振等)
+        if (tableName.Contains("misc", StringComparison.OrdinalIgnoreCase) || tableName.Contains("04", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var size in new[] { "3215", "3225", "2016", "5032" })
+            {
+                if (cleanPkg.Contains(size))
+                    return ($"XTAL_{size}", $"XTAL_{size}.step", @"DISCRETE\XTAL", "Y");
+            }
+        }
+
+        // 通用降级推导
+        var pfx = rule?.FootprintPrefix ?? string.Empty;
+        var mPfx = rule?.Model3DPrefix ?? string.Empty;
+        var matchedCode = rule?.SupportedPackages.FirstOrDefault(p => cleanPkg.Contains(p.ToUpperInvariant())) ?? rawPkg;
+        var resolvedFp = string.IsNullOrWhiteSpace(pfx) ? matchedCode : pfx + matchedCode;
+        var resolvedStep = (string.IsNullOrWhiteSpace(mPfx) ? matchedCode : mPfx + matchedCode) + ".step";
+        return (resolvedFp, resolvedStep, rule?.SymbolTemplate, rule?.DefaultReference);
     }
 
     private async void GenerateNumber_Click(object sender, RoutedEventArgs e)

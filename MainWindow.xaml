@@ -16,7 +16,6 @@
         <Menu Grid.Row="0" Margin="0,0,0,8" VerticalAlignment="Center">
             <MenuItem Header="配置">
                 <MenuItem Header="设置" Click="Settings_Click" />
-                <MenuItem Header="测试数据库连接" Click="TestConnection_Click" />
             </MenuItem>
             <MenuItem Header="帮助">
                 <MenuItem Header="关于" Click="About_Click" />

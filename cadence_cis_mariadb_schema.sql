@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- Cadence OrCAD CIS (Component Information System) MariaDB / MySQL 初始化脚本
--- 分类架构：严格遵循 PCBA 01~12 大类及 13 结构件分类标准
+-- 分类架构：严格遵循 PCBA 01~12 大类及 13 结构件分类标准 (去除 cis_ 前缀)
 -- 01: CPU/GPU/MCU/SOC
 -- 02: Common IC, other than Power
 -- 03: DDR
@@ -25,12 +25,12 @@ USE `cadence_cis_db`;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ------------------------------------------------------------------------------
--- 01. CPU/GPU/MCU/SOC (cis_01_cpu_mcu_soc)
+-- 01. CPU/GPU/MCU/SOC (01_cpu_mcu_soc)
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_01_cpu_mcu_soc`;
-CREATE TABLE `cis_01_cpu_mcu_soc` (
+DROP TABLE IF EXISTS `01_cpu_mcu_soc`;
+CREATE TABLE `01_cpu_mcu_soc` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-    `Part_Number` VARCHAR(64) NOT NULL UNIQUE COMMENT '公司唯一物料编码 (如 010000000001 或 01-MCU-STM32-0001)',
+    `Part_Number` VARCHAR(64) NOT NULL UNIQUE COMMENT '公司唯一物料编码 (如 010000000001)',
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Microcontroller (MCU)' COMMENT 'CIS目录树分类 (如 MCU, Application Processor, SoC, GPU, FPGA)',
     `Value` VARCHAR(64) NOT NULL COMMENT '标称型号或规格 (如 STM32G030F4P6, ESP32-S3)',
     `Package` VARCHAR(64) NOT NULL COMMENT '封装代码 (如 TSSOP-20, QFN-48, BGA-256)',
@@ -53,11 +53,11 @@ CREATE TABLE `cis_01_cpu_mcu_soc` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='01 CPU/GPU/MCU/SOC';
 
 -- ------------------------------------------------------------------------------
--- 02. 通用芯片除电源外 (cis_02_common_ic)
+-- 02. 通用芯片除电源外 (02_common_ic)
 -- 运放、比较器、接口收发器(485/CAN/USB)、逻辑门、电平转换、ADC/DAC
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_02_common_ic`;
-CREATE TABLE `cis_02_common_ic` (
+DROP TABLE IF EXISTS `02_common_ic`;
+CREATE TABLE `02_common_ic` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Operational Amplifier' COMMENT 'CIS分类 (如 OpAmp, RS485 Transceiver, Logic Gate, Level Shifter, ADC)',
@@ -81,11 +81,11 @@ CREATE TABLE `cis_02_common_ic` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='02 Common IC, other than Power';
 
 -- ------------------------------------------------------------------------------
--- 03. DDR / 动态随机存取内存 (cis_03_ddr)
+-- 03. DDR / 动态随机存取内存 (03_ddr)
 -- LPDDR4X, LPDDR5, DDR4, DDR3
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_03_ddr`;
-CREATE TABLE `cis_03_ddr` (
+DROP TABLE IF EXISTS `03_ddr`;
+CREATE TABLE `03_ddr` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'LPDDR4X' COMMENT 'CIS分类 (如 LPDDR4X, LPDDR5, DDR4, DDR3)',
@@ -109,11 +109,11 @@ CREATE TABLE `cis_03_ddr` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='03 DDR';
 
 -- ------------------------------------------------------------------------------
--- 04. 杂项器件 (cis_04_misc)
+-- 04. 杂项器件 (04_misc)
 -- 晶体晶振 (Y/OSC)、开关按键 (SW)、保险丝 (F)、蜂鸣器 (BZ)、天线 (ANT)、无线模组
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_04_misc`;
-CREATE TABLE `cis_04_misc` (
+DROP TABLE IF EXISTS `04_misc`;
+CREATE TABLE `04_misc` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Crystal (Passive)' COMMENT 'CIS分类 (如 Crystal, Oscillator, Tactile Switch, Fuse/PPTC, Buzzer, Antenna)',
@@ -137,11 +137,11 @@ CREATE TABLE `cis_04_misc` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='04 Misc..';
 
 -- ------------------------------------------------------------------------------
--- 05. 闪存与非易失存储 (cis_05_flash_rom)
+-- 05. 闪存与非易失存储 (05_flash_rom)
 -- SPI NOR Flash, NAND Flash, eMMC, UFS, EEPROM
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_05_flash_rom`;
-CREATE TABLE `cis_05_flash_rom` (
+DROP TABLE IF EXISTS `05_flash_rom`;
+CREATE TABLE `05_flash_rom` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'SPI NOR Flash' COMMENT 'CIS分类 (如 SPI NOR Flash, eMMC, UFS, EEPROM)',
@@ -165,11 +165,11 @@ CREATE TABLE `cis_05_flash_rom` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='05 Flash/ROM';
 
 -- ------------------------------------------------------------------------------
--- 06. 电源管理芯片 (cis_06_power_ic)
+-- 06. 电源管理芯片 (06_power_ic)
 -- LDO, Buck DCDC, Boost DCDC, PMIC, 锂电池充电管理
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_06_power_ic`;
-CREATE TABLE `cis_06_power_ic` (
+DROP TABLE IF EXISTS `06_power_ic`;
+CREATE TABLE `06_power_ic` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'LDO Regulator' COMMENT 'CIS分类 (如 LDO Regulator, Buck Converter, Boost Converter, PMIC, Charger)',
@@ -193,11 +193,11 @@ CREATE TABLE `cis_06_power_ic` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='06 Power IC';
 
 -- ------------------------------------------------------------------------------
--- 07. 晶体管与二极管 (cis_07_transistor_diode)
+-- 07. 晶体管与二极管 (07_transistor_diode)
 -- MOS管、三极管、肖特基、稳压管、TVS防静电管、LED发光管
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_07_transistor_diode`;
-CREATE TABLE `cis_07_transistor_diode` (
+DROP TABLE IF EXISTS `07_transistor_diode`;
+CREATE TABLE `07_transistor_diode` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'N-Channel MOSFET' COMMENT 'CIS分类 (如 N-Channel MOSFET, P-Channel MOSFET, BJT NPN, Schottky Diode, TVS, LED)',
@@ -221,11 +221,11 @@ CREATE TABLE `cis_07_transistor_diode` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='07 Transistor/Diode';
 
 -- ------------------------------------------------------------------------------
--- 08. PCB光板 (cis_08_pcb)
+-- 08. PCB光板 (08_pcb)
 -- 裸板工程料号
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_08_pcb`;
-CREATE TABLE `cis_08_pcb` (
+DROP TABLE IF EXISTS `08_pcb`;
+CREATE TABLE `08_pcb` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Bare PCB' COMMENT 'CIS分类 (如 Bare PCB, Panel PCB)',
@@ -248,10 +248,10 @@ CREATE TABLE `cis_08_pcb` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='08 PCB';
 
 -- ------------------------------------------------------------------------------
--- 09. 电感与磁珠 (cis_09_inductor) 【标准件库：复用 DISCRETE\IND, BEAD】
+-- 09. 电感与磁珠 (09_inductor) 【标准件库：复用 DISCRETE\IND, BEAD】
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_09_inductor`;
-CREATE TABLE `cis_09_inductor` (
+DROP TABLE IF EXISTS `09_inductor`;
+CREATE TABLE `09_inductor` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Chip Inductor' COMMENT 'CIS分类 (如 Chip Inductor, Power Inductor, Ferrite Bead)',
@@ -276,12 +276,12 @@ CREATE TABLE `cis_09_inductor` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='09 Inductor';
 
 -- ------------------------------------------------------------------------------
--- 10. 电阻 (cis_10_resistor) 【标准件库：复用 DISCRETE\RES】
+-- 10. 电阻 (10_resistor) 【标准件库：复用 DISCRETE\RES】
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_10_resistor`;
-CREATE TABLE `cis_10_resistor` (
-    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
-    `Part_Number` VARCHAR(64) NOT NULL UNIQUE COMMENT '公司自建唯一物料编码',
+DROP TABLE IF EXISTS `10_resistor`;
+CREATE TABLE `10_resistor` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '公司自建唯一物料编码',
+    `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Chip Resistor' COMMENT 'CIS分类 (如 Chip Resistor, Resistor Network)',
     `Value` VARCHAR(64) NOT NULL COMMENT '标称值 (如 10k, 4.7R, 0R)',
     `Package` VARCHAR(64) NOT NULL COMMENT '封装 (如 0402, 0603, 0805, 1206)',
@@ -304,11 +304,11 @@ CREATE TABLE `cis_10_resistor` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='10 Resistor';
 
 -- ------------------------------------------------------------------------------
--- 11. 电容 (cis_11_capacitor) 【标准件库：复用 DISCRETE\CAP, CAP_POL】
+-- 11. 电容 (11_capacitor) 【标准件库：复用 DISCRETE\CAP, CAP_POL】
 -- 包含 MLCC, 贴片陶瓷, 钽电容/POSCAP, 铝电解
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_11_capacitor`;
-CREATE TABLE `cis_11_capacitor` (
+DROP TABLE IF EXISTS `11_capacitor`;
+CREATE TABLE `11_capacitor` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Ceramic Capacitor (MLCC)' COMMENT 'CIS分类 (如 Ceramic Capacitor (MLCC), Polymer Tantalum (POSCAP), Aluminum Electrolytic)',
@@ -333,11 +333,11 @@ CREATE TABLE `cis_11_capacitor` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='11 Capacitor';
 
 -- ------------------------------------------------------------------------------
--- 12. 连接器与接插件 (cis_12_connector)
+-- 12. 连接器与接插件 (12_connector)
 -- Type-C, 排针排母, FPC, 板对板, 端子
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_12_connector`;
-CREATE TABLE `cis_12_connector` (
+DROP TABLE IF EXISTS `12_connector`;
+CREATE TABLE `12_connector` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Pin Header' COMMENT 'CIS分类 (如 USB Type-C, Pin Header, FPC Connector, Terminal Block)',
@@ -361,11 +361,11 @@ CREATE TABLE `cis_12_connector` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='12 Connector';
 
 -- ------------------------------------------------------------------------------
--- 13. 结构件 (cis_13_mechanical)
+-- 13. 结构件 (13_mechanical)
 -- 螺钉、铜柱、屏蔽罩、散热片、外壳、导热垫 (Box-level Hardware)
 -- ------------------------------------------------------------------------------
-DROP TABLE IF EXISTS `cis_13_mechanical`;
-CREATE TABLE `cis_13_mechanical` (
+DROP TABLE IF EXISTS `13_mechanical`;
+CREATE TABLE `13_mechanical` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
     `Part_Number` VARCHAR(64) NOT NULL UNIQUE,
     `Part_Type` VARCHAR(64) NOT NULL DEFAULT 'Shielding Can' COMMENT 'CIS分类 (如 Shielding Can, Heatsink, Screw, Standoff, Enclosure)',
@@ -391,7 +391,7 @@ CREATE TABLE `cis_13_mechanical` (
 -- ------------------------------------------------------------------------------
 -- 基础标准数据演示 (Seed Data)
 -- ------------------------------------------------------------------------------
-INSERT INTO `cis_10_resistor` 
+INSERT INTO `10_resistor` 
 (`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`) 
 VALUES
 ('100000000001', 'Chip Resistor', '10k',  '0402', 'RES SMD 10K OHM 1% 1/16W 0402',  'DISCRETE\\RES', 'R0402', 'R0402.step', 'R', 'Yageo',   'RC0402FR-0710KL', 'Active', 'C25744'),
@@ -399,7 +399,7 @@ VALUES
 ('100000000003', 'Chip Resistor', '0R',   '0402', 'RES SMD 0 OHM JUMPER 1/16W 0402', 'DISCRETE\\RES', 'R0402', 'R0402.step', 'R', 'Yageo',   'RC0402JR-070RL',  'Active', 'C17168'),
 ('100000000004', 'Chip Resistor', '100R', '0603', 'RES SMD 100 OHM 1% 1/10W 0603',  'DISCRETE\\RES', 'R0603', 'R0603.step', 'R', 'UniOhm',  '0603WAJ0101T5E',  'Active', 'C22775');
 
-INSERT INTO `cis_11_capacitor`
+INSERT INTO `11_capacitor`
 (`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`)
 VALUES
 ('110000000001', 'Ceramic Capacitor (MLCC)', '100nF', '0402', 'CAP CER 0.1UF 16V X7R 0402', 'DISCRETE\\CAP', 'C0402', 'C0402.step', 'C', 'Samsung', 'CL05B104KO5NNNC',    'Active', 'C1525'),
@@ -408,7 +408,7 @@ VALUES
 ('110000000004', 'Ceramic Capacitor (MLCC)', '10uF',  '0603', 'CAP CER 10UF 10V X5R 0603',   'DISCRETE\\CAP', 'C0603', 'C0603.step', 'C', 'Samsung', 'CL10A106MP8NNNC',    'Active', 'C15850'),
 ('110000000005', 'Polymer Tantalum (POSCAP)','47uF/6.3V','3528','CAP TANT POLY 47UF 6.3V 3528','DISCRETE\\CAP_POL','CAP_TANT_3528_B','CAP_TANT_3528_B.step','C','Panasonic','6TPB47M','Active','C10850');
 
-INSERT INTO `cis_09_inductor`
+INSERT INTO `09_inductor`
 (`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`)
 VALUES
 ('090000000001', 'Chip Inductor', '2.2uH', '0603', 'IND 2.2UH 0603 SMD', 'DISCRETE\\IND', 'L0603', 'L0603.step', 'L', 'Sunlord', 'SDCL1608C2R2KTDF', 'Active', 'C1045');
@@ -419,28 +419,28 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- 全局汇总检索视图 (聚合 01~13 表)
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW `v_all_components` AS
-SELECT '01 CPU/GPU/MCU/SOC' AS `Category`, `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_01_cpu_mcu_soc`
+SELECT '01 CPU/GPU/MCU/SOC' AS `Category`, `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `01_cpu_mcu_soc`
 UNION ALL
-SELECT '02 Common IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_02_common_ic`
+SELECT '02 Common IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `02_common_ic`
 UNION ALL
-SELECT '03 DDR', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_03_ddr`
+SELECT '03 DDR', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `03_ddr`
 UNION ALL
-SELECT '04 Misc..', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_04_misc`
+SELECT '04 Misc..', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `04_misc`
 UNION ALL
-SELECT '05 Flash/ROM', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_05_flash_rom`
+SELECT '05 Flash/ROM', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `05_flash_rom`
 UNION ALL
-SELECT '06 Power IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_06_power_ic`
+SELECT '06 Power IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `06_power_ic`
 UNION ALL
-SELECT '07 Transistor/Diode', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_07_transistor_diode`
+SELECT '07 Transistor/Diode', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `07_transistor_diode`
 UNION ALL
-SELECT '08 PCB', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_08_pcb`
+SELECT '08 PCB', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `08_pcb`
 UNION ALL
-SELECT '09 Inductor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_09_inductor`
+SELECT '09 Inductor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `09_inductor`
 UNION ALL
-SELECT '10 Resistor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_10_resistor`
+SELECT '10 Resistor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `10_resistor`
 UNION ALL
-SELECT '11 Capacitor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_11_capacitor`
+SELECT '11 Capacitor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `11_capacitor`
 UNION ALL
-SELECT '12 Connector', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_12_connector`
+SELECT '12 Connector', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `12_connector`
 UNION ALL
-SELECT '13 结构件', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `cis_13_mechanical`;
+SELECT '13 结构件', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `13_mechanical`;

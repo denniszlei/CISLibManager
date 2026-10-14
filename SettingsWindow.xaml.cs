@@ -27,6 +27,47 @@ public partial class SettingsWindow : Window
 
     public AppSettings Settings => _settings;
 
+    private async void TestConnection_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!uint.TryParse(PortBox.Text, out var port))
+            {
+                MessageBox.Show(this, "端口必须是数字。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var tempSettings = new AppSettings
+            {
+                Server = ServerBox.Text.Trim(),
+                Port = port,
+                Database = DatabaseBox.Text.Trim(),
+                UserId = UserBox.Text.Trim(),
+                Password = PasswordBox.Password
+            };
+
+            if (string.IsNullOrWhiteSpace(tempSettings.Server) || string.IsNullOrWhiteSpace(tempSettings.Database))
+            {
+                MessageBox.Show(this, "请先填写服务器和数据库名称。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var canConnect = await _databaseService.TestConnectionAsync(tempSettings);
+            if (canConnect)
+            {
+                MessageBox.Show(this, "MariaDB 数据库连接成功！", "连接成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(this, "无法连接到 MariaDB 数据库，请检查地址、端口及账号密码。", "连接失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "数据库连接测试异常：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private async void TestDigiKey_Click(object sender, RoutedEventArgs e)
     {
         var clientId = DigiKeyClientIdBox.Text.Trim();

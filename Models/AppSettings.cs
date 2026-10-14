@@ -33,22 +33,22 @@ public sealed class AppSettings
 
     public List<string> Model3DColumnNames { get; set; } = ["Model_3D", "3D Model", "Model3D", "StepModel", "模型", "三维模型"];
 
-    // 预置 01~13 经典大厂料号前缀
+    // 预置 01~13 经典大厂料号前缀 (无 cis_ 前缀)
     public Dictionary<string, string> TablePartNumberPrefixes { get; set; } = new()
     {
-        ["cis_01_cpu_mcu_soc"] = "01",
-        ["cis_02_common_ic"] = "02",
-        ["cis_03_ddr"] = "03",
-        ["cis_04_misc"] = "04",
-        ["cis_05_flash_rom"] = "05",
-        ["cis_06_power_ic"] = "06",
-        ["cis_07_transistor_diode"] = "07",
-        ["cis_08_pcb"] = "08",
-        ["cis_09_inductor"] = "09",
-        ["cis_10_resistor"] = "10",
-        ["cis_11_capacitor"] = "11",
-        ["cis_12_connector"] = "12",
-        ["cis_13_mechanical"] = "13"
+        ["01_cpu_mcu_soc"] = "01",
+        ["02_common_ic"] = "02",
+        ["03_ddr"] = "03",
+        ["04_misc"] = "04",
+        ["05_flash_rom"] = "05",
+        ["06_power_ic"] = "06",
+        ["07_transistor_diode"] = "07",
+        ["08_pcb"] = "08",
+        ["09_inductor"] = "09",
+        ["10_resistor"] = "10",
+        ["11_capacitor"] = "11",
+        ["12_connector"] = "12",
+        ["13_mechanical"] = "13"
     };
 
     // DigiKey API 凭据
@@ -58,7 +58,7 @@ public sealed class AppSettings
 
     public bool AutoEnrichWithLcsc { get; set; } = true;
 
-    // 标准料映射规则 (10电阻, 11电容, 09电感)
+    // 标准料映射规则 (涵盖 10电阻, 11电容, 09电感, 07二极管晶体管, 04杂项晶体)
     public List<StandardPartRule> StandardPartRules { get; set; } = StandardPartRule.GetDefaultRules();
 
     // 高级料号生成与校验规则字典 (Key: 表名)
