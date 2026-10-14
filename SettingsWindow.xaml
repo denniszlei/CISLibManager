@@ -128,8 +128,11 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="配置标准件对应的表、公共符号模板 (如 DISCRETE\RES) 与封装前缀：" Margin="0,0,0,8" Foreground="#666666" />
-                        <DataGrid Grid.Row="1" x:Name="StandardPartRulesGrid" Height="140" AutoGenerateColumns="False" CanUserAddRows="True" CanUserDeleteRows="True">
+                        <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                            <TextBlock Text="配置标准件对应的表、公共符号模板 (如 DISCRETE\RES) 与封装前缀：" VerticalAlignment="Center" Foreground="#666666" />
+                            <Button Content="重置为推荐默认规则" HorizontalAlignment="Right" Padding="8,2" Click="ResetStandardRules_Click" ToolTip="一键重置并加载10电阻、11电容、09电感、07二极管晶体管、04晶振等标准件规则" />
+                        </DockPanel>
+                        <DataGrid Grid.Row="1" x:Name="StandardPartRulesGrid" Height="150" AutoGenerateColumns="False" CanUserAddRows="True" CanUserDeleteRows="True">
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="数据库表名" Binding="{Binding TableName, UpdateSourceTrigger=PropertyChanged}" Width="120" />
                                 <DataGridTextColumn Header="显示名称" Binding="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" Width="110" />

@@ -71,18 +71,56 @@ public sealed class SettingsService
             Model3DLibraryPath = persisted.Model3DLibraryPath,
             PinLibraryPath = persisted.PinLibraryPath,
             StoreRelativeLibraryFileName = persisted.StoreRelativeLibraryFileName,
-            PartNumberIdWidth = persisted.PartNumberIdWidth,
+            PartNumberIdWidth = persisted.PartNumberIdWidth > 0 ? persisted.PartNumberIdWidth : 10,
             PartNumberColumnNames = persisted.PartNumberColumnNames,
             FootprintColumnNames = persisted.FootprintColumnNames,
             SymbolColumnNames = persisted.SymbolColumnNames,
             Model3DColumnNames = persisted.Model3DColumnNames,
-            TablePartNumberPrefixes = persisted.TablePartNumberPrefixes,
+            TablePartNumberPrefixes = SanitizeOrMigrateTablePrefixes(persisted.TablePartNumberPrefixes),
             DigiKeyClientId = persisted.DigiKeyClientId,
             DigiKeyClientSecret = digiKeySecret,
             AutoEnrichWithLcsc = persisted.AutoEnrichWithLcsc,
-            StandardPartRules = persisted.StandardPartRules.Count > 0 ? persisted.StandardPartRules : StandardPartRule.GetDefaultRules(),
+            StandardPartRules = SanitizeOrMigrateStandardRules(persisted.StandardPartRules),
             TablePartNumberRules = persisted.TablePartNumberRules
         }, passwordDecryptionFailed);
+    }
+
+    private static List<StandardPartRule> SanitizeOrMigrateStandardRules(List<StandardPartRule>? loadedRules)
+    {
+        if (loadedRules == null || loadedRules.Count == 0)
+        {
+            return StandardPartRule.GetDefaultRules();
+        }
+
+        // 检查旧版配置：若包含旧表名(cis_前缀)或者未覆盖07(晶体管二极管)/04(晶振)，则自动更新为最新5大类标准件规范
+        var hasLegacyCis = loadedRules.Any(r => r.TableName.StartsWith("cis_", StringComparison.OrdinalIgnoreCase));
+        var hasTransistor = loadedRules.Any(r => r.TableName.Contains("07") || r.TableName.Contains("transistor") || r.TableName.Contains("diode"));
+        var hasMisc = loadedRules.Any(r => r.TableName.Contains("04") || r.TableName.Contains("misc"));
+
+        if (hasLegacyCis || !hasTransistor || !hasMisc)
+        {
+            return StandardPartRule.GetDefaultRules();
+        }
+
+        return loadedRules;
+    }
+
+    private static Dictionary<string, string> SanitizeOrMigrateTablePrefixes(Dictionary<string, string>? loadedPrefixes)
+    {
+        var defaultPrefixes = new AppSettings().TablePartNumberPrefixes;
+        if (loadedPrefixes == null || loadedPrefixes.Count == 0)
+        {
+            return defaultPrefixes;
+        }
+
+        // 若发现旧配置中全是 cis_ 前缀，或缺少 01~13 规范，则迁移并采用新前缀体系
+        if (loadedPrefixes.Keys.Any(k => k.StartsWith("cis_", StringComparison.OrdinalIgnoreCase)) ||
+            !loadedPrefixes.Keys.Any(k => k.StartsWith("01_") || k.StartsWith("10_")))
+        {
+            return defaultPrefixes;
+        }
+
+        return loadedPrefixes;
     }
 
     private static PersistedAppSettings FromAppSettings(AppSettings settings)
@@ -130,7 +168,7 @@ public sealed class SettingsService
         }
         catch
         {
-            return plainText; // 兼容非 Windows 或降级
+            return plainText;
         }
     }
 
@@ -149,7 +187,7 @@ public sealed class SettingsService
         }
         catch
         {
-            return encryptedText; // 降级
+            return encryptedText;
         }
     }
 
@@ -177,15 +215,15 @@ public sealed class SettingsService
 
         public bool StoreRelativeLibraryFileName { get; set; } = true;
 
-        public int PartNumberIdWidth { get; set; } = 5;
+        public int PartNumberIdWidth { get; set; } = 10;
 
-        public List<string> PartNumberColumnNames { get; set; } = ["Part Number", "PartNumber", "Part_No", "PN", "编号", "料号"];
+        public List<string> PartNumberColumnNames { get; set; } = ["Part_Number", "Part Number", "PartNumber", "Part_No", "PN", "编号", "料号"];
 
-        public List<string> FootprintColumnNames { get; set; } = ["PCB Footprint", "Footprint", "Package", "封装"];
+        public List<string> FootprintColumnNames { get; set; } = ["PCB_Footprint", "PCB Footprint", "Footprint", "Package", "封装"];
 
-        public List<string> SymbolColumnNames { get; set; } = ["Schematic Symbol", "Symbol", "SchSymbol", "符号", "原理图符号"];
+        public List<string> SymbolColumnNames { get; set; } = ["Schematic_Part", "Schematic Symbol", "Symbol", "SchSymbol", "符号", "原理图符号"];
 
-        public List<string> Model3DColumnNames { get; set; } = ["3D Model", "Model3D", "StepModel", "模型", "三维模型"];
+        public List<string> Model3DColumnNames { get; set; } = ["Model_3D", "3D Model", "Model3D", "StepModel", "模型", "三维模型"];
 
         public Dictionary<string, string> TablePartNumberPrefixes { get; set; } = [];
 

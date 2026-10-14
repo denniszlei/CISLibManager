@@ -130,6 +130,16 @@ public partial class SettingsWindow : Window
         BrowseFolderInto(PinPathBox);
     }
 
+    private void ResetStandardRules_Click(object sender, RoutedEventArgs e)
+    {
+        _standardPartRuleRows.Clear();
+        foreach (var rule in StandardPartRule.GetDefaultRules())
+        {
+            _standardPartRuleRows.Add(rule);
+        }
+        MessageBox.Show(this, "已重置并加载推荐的 5 大类标准料映射规则（10电阻、11电容、09电感、07二极管晶体管、04杂项晶体）。\r\n点击右下角【保存】后生效。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private async void RefreshTablePrefixes_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -141,11 +151,15 @@ public partial class SettingsWindow : Window
             foreach (var table in tables)
             {
                 existingRules.TryGetValue(table, out var rule);
+                var defaultPrefix = (rule != null && !string.IsNullOrWhiteSpace(rule.Prefix))
+                    ? rule.Prefix
+                    : (table.Length >= 2 && char.IsDigit(table[0]) && char.IsDigit(table[1]) ? table[..2] : string.Empty);
+
                 _tableRuleRows.Add(new TableRuleRow
                 {
                     TableName = table,
-                    Prefix = rule?.Prefix ?? string.Empty,
-                    PatternTemplate = rule?.PatternTemplate ?? "{PREFIX}-{SEQ:5}",
+                    Prefix = defaultPrefix,
+                    PatternTemplate = rule?.PatternTemplate ?? "{PREFIX}{SEQ:10}",
                     ValidationRegex = rule?.ValidationRegex ?? string.Empty,
                     RegexErrorMessage = rule?.RegexErrorMessage ?? string.Empty
                 });
