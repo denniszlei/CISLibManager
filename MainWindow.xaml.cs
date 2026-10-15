@@ -51,6 +51,8 @@ public partial class MainWindow : Window
             MessageBox.Show(this, "已保存的数据库密码无法在当前 Windows 用户环境下解密，可能是配置文件来自其他用户或电脑。请打开“设置”重新输入数据库密码并保存。", "密码解密失败", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
 
+        InitSampleLocations();
+        _ = LoadSampleInventoriesAsync();
         SetStatus("设置已加载。请先读取表并生成表单，或拖入资产包。");
     }
 
@@ -295,8 +297,7 @@ public partial class MainWindow : Window
             {
                 TableComboBox.SelectedItem = match;
                 await EnsureColumnsLoadedAsync();
-        InitSampleLocations();
-        _ = LoadSampleInventoriesAsync();
+
             }
         }
 
@@ -815,8 +816,7 @@ public partial class MainWindow : Window
         try
         {
             await EnsureColumnsLoadedAsync();
-        InitSampleLocations();
-        _ = LoadSampleInventoriesAsync();
+
             var tableName = GetSelectedTableName();
             var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
             if (partNumberColumn is null || !_inputs.ContainsKey(partNumberColumn))
@@ -860,8 +860,7 @@ public partial class MainWindow : Window
         try
         {
             await EnsureColumnsLoadedAsync();
-        InitSampleLocations();
-        _ = LoadSampleInventoriesAsync();
+
             var partNumber = PartNumberSearchBox.Text.Trim();
             if (partNumber.Length == 0)
             {

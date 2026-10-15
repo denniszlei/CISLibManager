@@ -418,7 +418,7 @@ CREATE TABLE `13_mechanical` (
 -- 基础标准数据演示 (Seed Data)
 -- ------------------------------------------------------------------------------
 INSERT INTO `10_resistor` 
-(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note`) 
+(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`) 
 VALUES
 ('100000000001', 'Chip Resistor', '10k',  '0402', 'RES SMD 10K OHM 1% 1/16W 0402',  'DISCRETE\\RES', 'R0402', 'R0402.step', 'R', 'Yageo',   'RC0402FR-0710KL', 'Active', 'C25744'),
 ('100000000002', 'Chip Resistor', '4.7k', '0402', 'RES SMD 4.7K OHM 1% 1/16W 0402', 'DISCRETE\\RES', 'R0402', 'R0402.step', 'R', 'Yageo',   'RC0402FR-074K7L', 'Active', 'C25900'),
@@ -426,7 +426,7 @@ VALUES
 ('100000000004', 'Chip Resistor', '100R', '0603', 'RES SMD 100 OHM 1% 1/10W 0603',  'DISCRETE\\RES', 'R0603', 'R0603.step', 'R', 'UniOhm',  '0603WAJ0101T5E',  'Active', 'C22775');
 
 INSERT INTO `11_capacitor`
-(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note`)
+(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`)
 VALUES
 ('110000000001', 'Ceramic Capacitor (MLCC)', '100nF', '0402', 'CAP CER 0.1UF 16V X7R 0402', 'DISCRETE\\CAP', 'C0402', 'C0402.step', 'C', 'Samsung', 'CL05B104KO5NNNC',    'Active', 'C1525'),
 ('110000000002', 'Ceramic Capacitor (MLCC)', '10nF',  '0402', 'CAP CER 10NF 50V X7R 0402',   'DISCRETE\\CAP', 'C0402', 'C0402.step', 'C', 'Samsung', 'CL05B103KB5NNNC',    'Active', 'C1523'),
@@ -435,7 +435,7 @@ VALUES
 ('110000000005', 'Polymer Tantalum (POSCAP)','47uF/6.3V','3528','CAP TANT POLY 47UF 6.3V 3528','DISCRETE\\CAP_POL','CAP_TANT_3528_B','CAP_TANT_3528_B.step','C','Panasonic','6TPB47M','Active','C10850');
 
 INSERT INTO `09_inductor`
-(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note`)
+(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`)
 VALUES
 ('090000000001', 'Chip Inductor', '2.2uH', '0603', 'IND 2.2UH 0603 SMD', 'DISCRETE\\IND', 'L0603', 'L0603.step', 'L', 'Sunlord', 'SDCL1608C2R2KTDF', 'Active', 'C1045');
 
