@@ -45,6 +45,8 @@ CREATE TABLE `01_cpu_mcu_soc` (
     `Lifecycle_Status` VARCHAR(64) NOT NULL DEFAULT 'Active' COMMENT '生命周期状态 (Active / NRND / Obsolete)',
     `LCSC_Part_Number` VARCHAR(64) DEFAULT NULL COMMENT '立创商城物料编号',
     `Price_RMB` VARCHAR(32) DEFAULT NULL COMMENT '参考单价 (元)',
+    `Distributor` VARCHAR(128) DEFAULT NULL COMMENT '分销商/代理商渠道 (若非原厂直供)',
+    `Note` VARCHAR(512) DEFAULT NULL COMMENT '自由备注 (供应商联系人/样品批次/特殊说明)',
     `Created_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     `Updated_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX `idx_val_pkg` (`Value`, `Package`),
@@ -392,7 +394,7 @@ CREATE TABLE `13_mechanical` (
 -- 基础标准数据演示 (Seed Data)
 -- ------------------------------------------------------------------------------
 INSERT INTO `10_resistor` 
-(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`) 
+(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note`) 
 VALUES
 ('100000000001', 'Chip Resistor', '10k',  '0402', 'RES SMD 10K OHM 1% 1/16W 0402',  'DISCRETE\\RES', 'R0402', 'R0402.step', 'R', 'Yageo',   'RC0402FR-0710KL', 'Active', 'C25744'),
 ('100000000002', 'Chip Resistor', '4.7k', '0402', 'RES SMD 4.7K OHM 1% 1/16W 0402', 'DISCRETE\\RES', 'R0402', 'R0402.step', 'R', 'Yageo',   'RC0402FR-074K7L', 'Active', 'C25900'),
@@ -400,7 +402,7 @@ VALUES
 ('100000000004', 'Chip Resistor', '100R', '0603', 'RES SMD 100 OHM 1% 1/10W 0603',  'DISCRETE\\RES', 'R0603', 'R0603.step', 'R', 'UniOhm',  '0603WAJ0101T5E',  'Active', 'C22775');
 
 INSERT INTO `11_capacitor`
-(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`)
+(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note`)
 VALUES
 ('110000000001', 'Ceramic Capacitor (MLCC)', '100nF', '0402', 'CAP CER 0.1UF 16V X7R 0402', 'DISCRETE\\CAP', 'C0402', 'C0402.step', 'C', 'Samsung', 'CL05B104KO5NNNC',    'Active', 'C1525'),
 ('110000000002', 'Ceramic Capacitor (MLCC)', '10nF',  '0402', 'CAP CER 10NF 50V X7R 0402',   'DISCRETE\\CAP', 'C0402', 'C0402.step', 'C', 'Samsung', 'CL05B103KB5NNNC',    'Active', 'C1523'),
@@ -409,7 +411,7 @@ VALUES
 ('110000000005', 'Polymer Tantalum (POSCAP)','47uF/6.3V','3528','CAP TANT POLY 47UF 6.3V 3528','DISCRETE\\CAP_POL','CAP_TANT_3528_B','CAP_TANT_3528_B.step','C','Panasonic','6TPB47M','Active','C10850');
 
 INSERT INTO `09_inductor`
-(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`)
+(`Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Part_Reference`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note`)
 VALUES
 ('090000000001', 'Chip Inductor', '2.2uH', '0603', 'IND 2.2UH 0603 SMD', 'DISCRETE\\IND', 'L0603', 'L0603.step', 'L', 'Sunlord', 'SDCL1608C2R2KTDF', 'Active', 'C1045');
 
@@ -419,28 +421,70 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- 全局汇总检索视图 (聚合 01~13 表)
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW `v_all_components` AS
-SELECT '01 CPU/GPU/MCU/SOC' AS `Category`, `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `01_cpu_mcu_soc`
+SELECT '01 CPU/GPU/MCU/SOC' AS `Category`, `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `01_cpu_mcu_soc`
 UNION ALL
-SELECT '02 Common IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `02_common_ic`
+SELECT '02 Common IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `02_common_ic`
 UNION ALL
-SELECT '03 DDR', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `03_ddr`
+SELECT '03 DDR', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `03_ddr`
 UNION ALL
-SELECT '04 Misc..', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `04_misc`
+SELECT '04 Misc..', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `04_misc`
 UNION ALL
-SELECT '05 Flash/ROM', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `05_flash_rom`
+SELECT '05 Flash/ROM', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `05_flash_rom`
 UNION ALL
-SELECT '06 Power IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `06_power_ic`
+SELECT '06 Power IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `06_power_ic`
 UNION ALL
-SELECT '07 Transistor/Diode', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `07_transistor_diode`
+SELECT '07 Transistor/Diode', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `07_transistor_diode`
 UNION ALL
-SELECT '08 PCB', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `08_pcb`
+SELECT '08 PCB', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `08_pcb`
 UNION ALL
-SELECT '09 Inductor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `09_inductor`
+SELECT '09 Inductor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `09_inductor`
 UNION ALL
-SELECT '10 Resistor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `10_resistor`
+SELECT '10 Resistor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `10_resistor`
 UNION ALL
-SELECT '11 Capacitor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `11_capacitor`
+SELECT '11 Capacitor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `11_capacitor`
 UNION ALL
-SELECT '12 Connector', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `12_connector`
+SELECT '12 Connector', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `12_connector`
 UNION ALL
-SELECT '13 结构件', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number` FROM `13_mechanical`;
+SELECT '13 结构件', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `13_mechanical`;
+
+
+-- ==============================================================================
+-- 研发样品库存管控系统 (Sample Inventory Management)
+-- ==============================================================================
+
+-- 1. 样品台账主表 (按物料号与库位汇总)
+DROP TABLE IF EXISTS `sample_inventory`;
+CREATE TABLE `sample_inventory` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `Part_Number` VARCHAR(64) NOT NULL COMMENT '关联 OrCAD CIS 物料编号',
+    `Location` VARCHAR(64) NOT NULL DEFAULT '默认样品柜' COMMENT '物理存放库位 (如 A柜-02层-15盒)',
+    `Quantity_On_Hand` INT NOT NULL DEFAULT 0 COMMENT '当前在手可用库存',
+    `Quantity_Lent` INT NOT NULL DEFAULT 0 COMMENT '调测在借数量 (借出待归还)',
+    `Quantity_Total_In` INT NOT NULL DEFAULT 0 COMMENT '累计入库总数',
+    `Min_Alert_Qty` INT NOT NULL DEFAULT 0 COMMENT '低库存预警阈值 (0表示不开启预警)',
+    `Distributor` VARCHAR(128) DEFAULT NULL COMMENT '主要供应/分销渠道',
+    `Remark` VARCHAR(512) DEFAULT NULL COMMENT '库位或物料备注',
+    `Created_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    `Updated_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY `uk_pn_loc` (`Part_Number`, `Location`),
+    INDEX `idx_part_number` (`Part_Number`),
+    INDEX `idx_location` (`Location`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='研发样品库存主表';
+
+-- 2. 样品出入库变动明细与流水台账 (Transactions Log)
+DROP TABLE IF EXISTS `sample_transactions`;
+CREATE TABLE `sample_transactions` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+    `Part_Number` VARCHAR(64) NOT NULL COMMENT '物料编号',
+    `Transaction_Type` VARCHAR(32) NOT NULL COMMENT '业务类型: 入库 / 领用消耗 / 调测借出 / 归还 / 报废',
+    `Quantity` INT NOT NULL COMMENT '变动数量 (正整数)',
+    `Operator` VARCHAR(64) NOT NULL COMMENT '领用人/经办人',
+    `Project_Name` VARCHAR(128) DEFAULT NULL COMMENT '关联研发项目/板卡代号',
+    `Location` VARCHAR(64) NOT NULL DEFAULT '默认样品柜' COMMENT '库位',
+    `Remark` VARCHAR(512) DEFAULT NULL COMMENT '详细原因或说明',
+    `Created_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX `idx_tx_pn` (`Part_Number`),
+    INDEX `idx_tx_type` (`Transaction_Type`),
+    INDEX `idx_tx_operator` (`Operator`),
+    INDEX `idx_tx_created` (`Created_At`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='研发样品出入库变动流水表';

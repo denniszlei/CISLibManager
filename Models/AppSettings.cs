@@ -61,6 +61,9 @@ public sealed class AppSettings
     // 标准料映射规则 (涵盖 10电阻, 11电容, 09电感, 07二极管晶体管, 04杂项晶体)
     public List<StandardPartRule> StandardPartRules { get; set; } = StandardPartRule.GetDefaultRules();
 
+    // 样品库存位置预置字典 (可在配置页维护)
+    public List<string> SampleLocations { get; set; } = ["研发样品柜-A1", "研发样品柜-A2", "研发样品柜-B1", "0402专用样品盒", "0603专用样品盒", "高频/射频专柜", "屏蔽房备件盒", "默认样品柜"];
+
     // 高级料号生成与校验规则字典 (Key: 表名)
     public Dictionary<string, PartNumberRule> TablePartNumberRules { get; set; } = [];
 }

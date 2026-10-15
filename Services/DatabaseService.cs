@@ -241,6 +241,268 @@ public sealed class DatabaseService
         return connection;
     }
 
+    public async Task EnsureSampleTablesExistAsync(AppSettings settings)
+    {
+        await using var connection = new MySqlConnection(BuildConnectionString(settings));
+        await connection.OpenAsync();
+
+        var ddl1 = """
+        CREATE TABLE IF NOT EXISTS `sample_inventory` (
+            `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+            `Part_Number` VARCHAR(64) NOT NULL,
+            `Location` VARCHAR(64) NOT NULL DEFAULT '默认样品柜',
+            `Quantity_On_Hand` INT NOT NULL DEFAULT 0,
+            `Quantity_Lent` INT NOT NULL DEFAULT 0,
+            `Quantity_Total_In` INT NOT NULL DEFAULT 0,
+            `Min_Alert_Qty` INT NOT NULL DEFAULT 0,
+            `Distributor` VARCHAR(128) DEFAULT NULL,
+            `Remark` VARCHAR(512) DEFAULT NULL,
+            `Created_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            `Updated_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY `uk_pn_loc` (`Part_Number`, `Location`),
+            INDEX `idx_part_number` (`Part_Number`),
+            INDEX `idx_location` (`Location`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """;
+
+        var ddl2 = """
+        CREATE TABLE IF NOT EXISTS `sample_transactions` (
+            `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+            `Part_Number` VARCHAR(64) NOT NULL,
+            `Transaction_Type` VARCHAR(32) NOT NULL,
+            `Quantity` INT NOT NULL,
+            `Operator` VARCHAR(64) NOT NULL,
+            `Project_Name` VARCHAR(128) DEFAULT NULL,
+            `Location` VARCHAR(64) NOT NULL DEFAULT '默认样品柜',
+            `Remark` VARCHAR(512) DEFAULT NULL,
+            `Created_At` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX `idx_tx_pn` (`Part_Number`),
+            INDEX `idx_tx_type` (`Transaction_Type`),
+            INDEX `idx_tx_operator` (`Operator`),
+            INDEX `idx_tx_created` (`Created_At`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        """;
+
+        await using (var cmd = new MySqlCommand(ddl1, connection))
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
+        await using (var cmd = new MySqlCommand(ddl2, connection))
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    public async Task<List<SampleInventoryItem>> QuerySampleInventoriesAsync(AppSettings settings, string? keyword = null)
+    {
+        await EnsureSampleTablesExistAsync(settings);
+        var results = new List<SampleInventoryItem>();
+        await using var connection = new MySqlConnection(BuildConnectionString(settings));
+        await connection.OpenAsync();
+
+        var sql = @"
+            SELECT si.id, si.Part_Number, si.Location, si.Quantity_On_Hand, si.Quantity_Lent,
+                   si.Quantity_Total_In, si.Min_Alert_Qty, si.Distributor, si.Remark, si.Updated_At,
+                   v.Part_Type, v.Value, v.Package, v.Description, v.Manufacturer, v.Manufacturer_Part_Number
+            FROM `sample_inventory` si
+            LEFT JOIN `v_all_components` v ON si.Part_Number = v.Part_Number
+        ";
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            sql += @" WHERE si.Part_Number LIKE @kw OR si.Location LIKE @kw OR si.Distributor LIKE @kw
+                      OR v.Manufacturer_Part_Number LIKE @kw OR v.Description LIKE @kw OR v.Value LIKE @kw";
+        }
+        sql += " ORDER BY si.Updated_At DESC";
+
+        await using var cmd = new MySqlCommand(sql, connection);
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            cmd.Parameters.AddWithValue("@kw", $"%{keyword.Trim()}%");
+        }
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new SampleInventoryItem
+            {
+                Id = reader.GetInt64(0),
+                PartNumber = reader.GetString(1),
+                Location = reader.GetString(2),
+                QuantityOnHand = reader.GetInt32(3),
+                QuantityLent = reader.GetInt32(4),
+                QuantityTotalIn = reader.GetInt32(5),
+                MinAlertQty = reader.GetInt32(6),
+                Distributor = reader.IsDBNull(7) ? null : reader.GetString(7),
+                Remark = reader.IsDBNull(8) ? null : reader.GetString(8),
+                UpdatedAt = reader.IsDBNull(9) ? null : reader.GetDateTime(9),
+                PartType = reader.IsDBNull(10) ? null : reader.GetString(10),
+                Value = reader.IsDBNull(11) ? null : reader.GetString(11),
+                Package = reader.IsDBNull(12) ? null : reader.GetString(12),
+                Description = reader.IsDBNull(13) ? null : reader.GetString(13),
+                Manufacturer = reader.IsDBNull(14) ? null : reader.GetString(14),
+                ManufacturerPartNumber = reader.IsDBNull(15) ? null : reader.GetString(15)
+            });
+        }
+        return results;
+    }
+
+    public async Task<List<SampleTransactionRecord>> QuerySampleTransactionsAsync(AppSettings settings, string? partNumber = null, int limit = 100)
+    {
+        await EnsureSampleTablesExistAsync(settings);
+        var results = new List<SampleTransactionRecord>();
+        await using var connection = new MySqlConnection(BuildConnectionString(settings));
+        await connection.OpenAsync();
+
+        var sql = "SELECT id, Part_Number, Transaction_Type, Quantity, Operator, Project_Name, Location, Remark, Created_At FROM `sample_transactions`";
+        if (!string.IsNullOrWhiteSpace(partNumber))
+        {
+            sql += " WHERE Part_Number = @pn";
+        }
+        sql += $" ORDER BY Created_At DESC LIMIT {limit}";
+
+        await using var cmd = new MySqlCommand(sql, connection);
+        if (!string.IsNullOrWhiteSpace(partNumber))
+        {
+            cmd.Parameters.AddWithValue("@pn", partNumber.Trim());
+        }
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new SampleTransactionRecord
+            {
+                Id = reader.GetInt64(0),
+                PartNumber = reader.GetString(1),
+                TransactionType = reader.GetString(2),
+                Quantity = reader.GetInt32(3),
+                Operator = reader.GetString(4),
+                ProjectName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                Location = reader.GetString(6),
+                Remark = reader.IsDBNull(7) ? null : reader.GetString(7),
+                CreatedAt = reader.GetDateTime(8)
+            });
+        }
+        return results;
+    }
+
+    public async Task ExecuteSampleTransactionAsync(AppSettings settings, SampleTransactionRecord tx, string? distributor = null)
+    {
+        await EnsureSampleTablesExistAsync(settings);
+        await using var connection = new MySqlConnection(BuildConnectionString(settings));
+        await connection.OpenAsync();
+        await using var dbTransaction = await connection.BeginTransactionAsync();
+
+        try
+        {
+            int currentOnHand = 0;
+            int currentLent = 0;
+            int currentTotalIn = 0;
+            bool exists = false;
+
+            var selectSql = "SELECT Quantity_On_Hand, Quantity_Lent, Quantity_Total_In FROM `sample_inventory` WHERE Part_Number = @pn AND Location = @loc FOR UPDATE";
+            await using (var selCmd = new MySqlCommand(selectSql, connection, dbTransaction))
+            {
+                selCmd.Parameters.AddWithValue("@pn", tx.PartNumber.Trim());
+                selCmd.Parameters.AddWithValue("@loc", tx.Location.Trim());
+                await using var reader = await selCmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    exists = true;
+                    currentOnHand = reader.GetInt32(0);
+                    currentLent = reader.GetInt32(1);
+                    currentTotalIn = reader.GetInt32(2);
+                }
+            }
+
+            switch (tx.TransactionType)
+            {
+                case SampleTransactionTypes.CheckIn:
+                    currentOnHand += tx.Quantity;
+                    currentTotalIn += tx.Quantity;
+                    break;
+                case SampleTransactionTypes.Consume:
+                    if (currentOnHand < tx.Quantity)
+                        throw new InvalidOperationException($"在手库存不足！当前库存: {currentOnHand}，申请领用: {tx.Quantity}");
+                    currentOnHand -= tx.Quantity;
+                    break;
+                case SampleTransactionTypes.Borrow:
+                    if (currentOnHand < tx.Quantity)
+                        throw new InvalidOperationException($"在手库存不足！当前库存: {currentOnHand}，申请借出: {tx.Quantity}");
+                    currentOnHand -= tx.Quantity;
+                    currentLent += tx.Quantity;
+                    break;
+                case SampleTransactionTypes.Return:
+                    if (currentLent < tx.Quantity)
+                        throw new InvalidOperationException($"在借数量不足以归还！当前在借: {currentLent}，尝试归还: {tx.Quantity}");
+                    currentLent -= tx.Quantity;
+                    currentOnHand += tx.Quantity;
+                    break;
+                case SampleTransactionTypes.Scrap:
+                    if (currentOnHand < tx.Quantity)
+                        throw new InvalidOperationException($"在手库存不足以报废！当前库存: {currentOnHand}，申请报废: {tx.Quantity}");
+                    currentOnHand -= tx.Quantity;
+                    break;
+                default:
+                    throw new InvalidOperationException($"未知样品业务类型: {tx.TransactionType}");
+            }
+
+            if (exists)
+            {
+                var updateSql = @"UPDATE `sample_inventory` 
+                                  SET Quantity_On_Hand = @onHand, Quantity_Lent = @lent, Quantity_Total_In = @totalIn,
+                                      Distributor = COALESCE(@distributor, Distributor), Remark = COALESCE(@remark, Remark)
+                                  WHERE Part_Number = @pn AND Location = @loc";
+                await using var upCmd = new MySqlCommand(updateSql, connection, dbTransaction);
+                upCmd.Parameters.AddWithValue("@onHand", currentOnHand);
+                upCmd.Parameters.AddWithValue("@lent", currentLent);
+                upCmd.Parameters.AddWithValue("@totalIn", currentTotalIn);
+                upCmd.Parameters.AddWithValue("@distributor", (object?)distributor ?? DBNull.Value);
+                upCmd.Parameters.AddWithValue("@remark", (object?)tx.Remark ?? DBNull.Value);
+                upCmd.Parameters.AddWithValue("@pn", tx.PartNumber.Trim());
+                upCmd.Parameters.AddWithValue("@loc", tx.Location.Trim());
+                await upCmd.ExecuteNonQueryAsync();
+            }
+            else
+            {
+                var insertSql = @"INSERT INTO `sample_inventory` 
+                                  (Part_Number, Location, Quantity_On_Hand, Quantity_Lent, Quantity_Total_In, Min_Alert_Qty, Distributor, Remark)
+                                  VALUES (@pn, @loc, @onHand, @lent, @totalIn, 0, @distributor, @remark)";
+                await using var inCmd = new MySqlCommand(insertSql, connection, dbTransaction);
+                inCmd.Parameters.AddWithValue("@pn", tx.PartNumber.Trim());
+                inCmd.Parameters.AddWithValue("@loc", tx.Location.Trim());
+                inCmd.Parameters.AddWithValue("@onHand", currentOnHand);
+                inCmd.Parameters.AddWithValue("@lent", currentLent);
+                inCmd.Parameters.AddWithValue("@totalIn", currentTotalIn);
+                inCmd.Parameters.AddWithValue("@distributor", (object?)distributor ?? DBNull.Value);
+                inCmd.Parameters.AddWithValue("@remark", (object?)tx.Remark ?? DBNull.Value);
+                await inCmd.ExecuteNonQueryAsync();
+            }
+
+            var logSql = @"INSERT INTO `sample_transactions` 
+                           (Part_Number, Transaction_Type, Quantity, Operator, Project_Name, Location, Remark)
+                           VALUES (@pn, @type, @qty, @op, @proj, @loc, @rem)";
+            await using (var logCmd = new MySqlCommand(logSql, connection, dbTransaction))
+            {
+                logCmd.Parameters.AddWithValue("@pn", tx.PartNumber.Trim());
+                logCmd.Parameters.AddWithValue("@type", tx.TransactionType);
+                logCmd.Parameters.AddWithValue("@qty", tx.Quantity);
+                logCmd.Parameters.AddWithValue("@op", tx.Operator.Trim());
+                logCmd.Parameters.AddWithValue("@proj", (object?)tx.ProjectName?.Trim() ?? DBNull.Value);
+                logCmd.Parameters.AddWithValue("@loc", tx.Location.Trim());
+                logCmd.Parameters.AddWithValue("@rem", (object?)tx.Remark?.Trim() ?? DBNull.Value);
+                await logCmd.ExecuteNonQueryAsync();
+            }
+
+            await dbTransaction.CommitAsync();
+        }
+        catch
+        {
+            await dbTransaction.RollbackAsync();
+            throw;
+        }
+    }
+
     private static string EscapeIdentifier(string identifier)
     {
         return "`" + identifier.Replace("`", "``") + "`";

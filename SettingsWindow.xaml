@@ -122,6 +122,17 @@
                     </Grid>
                 </GroupBox>
 
+                <GroupBox Header="研发样品库位字典设置" Margin="0,0,0,12" Padding="12">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="配置研发样品常用存放库位（抽屉、料盒、样品柜，多个库位用逗号分隔）：" Margin="0,0,0,8" Foreground="#666666" />
+                        <TextBox Grid.Row="1" x:Name="SampleLocationsBox" Height="28" VerticalContentAlignment="Center" ToolTip="例如：研发样品柜-A1, 0402专用样品盒, 高频专柜" />
+                    </Grid>
+                </GroupBox>
+
                 <GroupBox Header="标准料规则映射 (复用 DISCRETE 资产)" Margin="0,0,0,12" Padding="12">
                     <Grid>
                         <Grid.RowDefinitions>

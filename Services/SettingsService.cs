@@ -81,6 +81,7 @@ public sealed class SettingsService
             DigiKeyClientSecret = digiKeySecret,
             AutoEnrichWithLcsc = persisted.AutoEnrichWithLcsc,
             StandardPartRules = SanitizeOrMigrateStandardRules(persisted.StandardPartRules),
+            SampleLocations = persisted.SampleLocations.Count > 0 ? persisted.SampleLocations : new AppSettings().SampleLocations,
             TablePartNumberRules = persisted.TablePartNumberRules
         }, passwordDecryptionFailed);
     }
@@ -149,6 +150,7 @@ public sealed class SettingsService
             EncryptedDigiKeyClientSecret = EncryptSecret(settings.DigiKeyClientSecret),
             AutoEnrichWithLcsc = settings.AutoEnrichWithLcsc,
             StandardPartRules = [.. settings.StandardPartRules],
+            SampleLocations = [.. settings.SampleLocations],
             TablePartNumberRules = settings.TablePartNumberRules.ToDictionary()
         };
     }
@@ -236,6 +238,8 @@ public sealed class SettingsService
         public bool AutoEnrichWithLcsc { get; set; } = true;
 
         public List<StandardPartRule> StandardPartRules { get; set; } = [];
+
+        public List<string> SampleLocations { get; set; } = [];
 
         public Dictionary<string, PartNumberRule> TablePartNumberRules { get; set; } = [];
     }

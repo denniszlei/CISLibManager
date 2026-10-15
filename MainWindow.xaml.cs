@@ -295,6 +295,8 @@ public partial class MainWindow : Window
             {
                 TableComboBox.SelectedItem = match;
                 await EnsureColumnsLoadedAsync();
+        InitSampleLocations();
+        _ = LoadSampleInventoriesAsync();
             }
         }
 
@@ -326,6 +328,8 @@ public partial class MainWindow : Window
         SetInputValueIfColumnMatches(item.LifecycleStatus, "Lifecycle_Status", "Status", "生命周期", "状态");
         SetInputValueIfColumnMatches(item.Price, "Price_RMB", "Price", "价格", "单价");
         SetInputValueIfColumnMatches(item.LcscPartNumber, "LCSC_Part_Number", "LCSC", "立创编号", "LCSC_PN");
+        var defaultDistributor = string.Equals(item.Source, "LCSC", StringComparison.OrdinalIgnoreCase) ? "立创商城 (LCSC)" : (string.Equals(item.Source, "DigiKey", StringComparison.OrdinalIgnoreCase) ? "得捷电子 (DigiKey)" : string.Empty);
+        SetInputValueIfColumnMatches(defaultDistributor, "Distributor", "分销商", "渠道", "代理商");
 
         var hasValueParam = false;
         foreach (var (paramKey, paramVal) in item.Parameters)
@@ -811,6 +815,8 @@ public partial class MainWindow : Window
         try
         {
             await EnsureColumnsLoadedAsync();
+        InitSampleLocations();
+        _ = LoadSampleInventoriesAsync();
             var tableName = GetSelectedTableName();
             var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
             if (partNumberColumn is null || !_inputs.ContainsKey(partNumberColumn))
@@ -854,6 +860,8 @@ public partial class MainWindow : Window
         try
         {
             await EnsureColumnsLoadedAsync();
+        InitSampleLocations();
+        _ = LoadSampleInventoriesAsync();
             var partNumber = PartNumberSearchBox.Text.Trim();
             if (partNumber.Length == 0)
             {
@@ -1345,4 +1353,173 @@ public partial class MainWindow : Window
         MessageBox.Show(this, message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
     }
     #endregion
+
+    #region 研发样品库存管控逻辑
+
+    private string _currentSampleOperationType = SampleTransactionTypes.CheckIn;
+
+    private void InitSampleLocations()
+    {
+        SampleLocationComboBox.ItemsSource = _settings.SampleLocations;
+        if (_settings.SampleLocations.Count > 0)
+        {
+            SampleLocationComboBox.SelectedIndex = 0;
+        }
+    }
+
+    private async Task LoadSampleInventoriesAsync(string? keyword = null)
+    {
+        try
+        {
+            var list = await _databaseService.QuerySampleInventoriesAsync(_settings, keyword);
+            SampleInventoryGrid.ItemsSource = list;
+            var txList = await _databaseService.QuerySampleTransactionsAsync(_settings, null, 100);
+            SampleTransactionsGrid.ItemsSource = txList;
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"加载样品数据失败: {ex.Message}");
+        }
+    }
+
+    private async void SampleSearch_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadSampleInventoriesAsync(SampleSearchBox.Text.Trim());
+    }
+
+    private async void SampleShowAll_Click(object sender, RoutedEventArgs e)
+    {
+        SampleSearchBox.Text = string.Empty;
+        await LoadSampleInventoriesAsync(null);
+    }
+
+    private void SampleSearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            SampleSearch_Click(sender, e);
+        }
+    }
+
+    private void SampleInventoryGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (SampleInventoryGrid.SelectedItem is SampleInventoryItem item)
+        {
+            SelectedSamplePartLabel.Text = $"{item.PartNumber} ({item.Value ?? item.ManufacturerPartNumber ?? ""})";
+            if (!string.IsNullOrWhiteSpace(item.Location))
+            {
+                SampleLocationComboBox.SelectedItem = item.Location;
+                if (SampleLocationComboBox.SelectedItem == null)
+                {
+                    SampleLocationComboBox.Text = item.Location;
+                }
+            }
+            _ = LoadSampleTransactionsForPartAsync(item.PartNumber);
+        }
+    }
+
+    private async Task LoadSampleTransactionsForPartAsync(string partNumber)
+    {
+        try
+        {
+            var txList = await _databaseService.QuerySampleTransactionsAsync(_settings, partNumber, 50);
+            SampleTransactionsGrid.ItemsSource = txList;
+        }
+        catch
+        {
+        }
+    }
+
+    private void SampleQuickCheckIn_Click(object sender, RoutedEventArgs e)
+    {
+        _currentSampleOperationType = SampleTransactionTypes.CheckIn;
+        SetStatus("已切换操作模式为：【📥 登记入库】。请输入数量、经办人和库位后点击执行。");
+    }
+
+    private void SampleQuickCheckout_Click(object sender, RoutedEventArgs e)
+    {
+        var res = MessageBox.Show(this, "请选择出库类型：\r\n\r\n【是】领用消耗（焊接或消耗后不归还）\r\n【否】调测借出（研发借调，后续归还）", "领用类型选择", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+        if (res == MessageBoxResult.Yes)
+        {
+            _currentSampleOperationType = SampleTransactionTypes.Consume;
+            SetStatus("已切换操作模式为：【📤 领用消耗】。");
+        }
+        else if (res == MessageBoxResult.No)
+        {
+            _currentSampleOperationType = SampleTransactionTypes.Borrow;
+            SetStatus("已切换操作模式为：【📤 调测借出】。");
+        }
+    }
+
+    private void SampleQuickReturn_Click(object sender, RoutedEventArgs e)
+    {
+        _currentSampleOperationType = SampleTransactionTypes.Return;
+        SetStatus("已切换操作模式为：【🔄 归还样品】。将归还在借样品至库位。");
+    }
+
+    private void SampleQuickScrap_Click(object sender, RoutedEventArgs e)
+    {
+        _currentSampleOperationType = SampleTransactionTypes.Scrap;
+        SetStatus("已切换操作模式为：【🗑️ 报废核销】。");
+    }
+
+    private async void ExecuteSampleOperation_Click(object sender, RoutedEventArgs e)
+    {
+        var item = SampleInventoryGrid.SelectedItem as SampleInventoryItem;
+        var pn = item?.PartNumber ?? SampleSearchBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(pn))
+        {
+            MessageBox.Show(this, "请先在上方列表中选中物料，或在检索框中输入要操作的物料号 (Part Number)！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!int.TryParse(SampleQuantityBox.Text.Trim(), out var qty) || qty <= 0)
+        {
+            MessageBox.Show(this, "数量必须是大于 0 的有效整数！", "格式错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var op = SampleOperatorBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(op))
+        {
+            MessageBox.Show(this, "请输入经办人/领用人姓名！", "必填项缺失", MessageBoxButton.OK, MessageBoxImage.Warning);
+            SampleOperatorBox.Focus();
+            return;
+        }
+
+        var location = SampleLocationComboBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(location))
+        {
+            location = "默认样品柜";
+        }
+
+        var tx = new SampleTransactionRecord
+        {
+            PartNumber = pn,
+            TransactionType = _currentSampleOperationType,
+            Quantity = qty,
+            Operator = op,
+            ProjectName = SampleProjectBox.Text.Trim(),
+            Location = location,
+            Remark = SampleRemarkBox.Text.Trim(),
+            CreatedAt = DateTime.Now
+        };
+
+        try
+        {
+            SetStatus($"正在执行样品【{tx.TransactionType}】操作...");
+            await _databaseService.ExecuteSampleTransactionAsync(_settings, tx, item?.Distributor);
+            MessageBox.Show(this, $"物料 {pn} 成功完成【{tx.TransactionType}】操作！\r\n数量: {qty}，库位: {location}，操作人: {op}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            SetStatus($"样品操作成功完成：{pn} {tx.TransactionType} {qty} PCS。");
+            await LoadSampleInventoriesAsync(pn);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"执行失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            SetStatus($"样品操作失败: {ex.Message}");
+        }
+    }
+
+    #endregion
+
 }
