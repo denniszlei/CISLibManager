@@ -243,8 +243,7 @@ public sealed class DatabaseService
 
     public async Task EnsureSampleTablesExistAsync(AppSettings settings)
     {
-        await using var connection = new MySqlConnection(BuildConnectionString(settings));
-        await connection.OpenAsync();
+        await using var connection = await OpenConnectionAsync(settings);
 
         var ddl1 = """
         CREATE TABLE IF NOT EXISTS `sample_inventory` (
@@ -297,8 +296,7 @@ public sealed class DatabaseService
     {
         await EnsureSampleTablesExistAsync(settings);
         var results = new List<SampleInventoryItem>();
-        await using var connection = new MySqlConnection(BuildConnectionString(settings));
-        await connection.OpenAsync();
+        await using var connection = await OpenConnectionAsync(settings);
 
         var sql = @"
             SELECT si.id, si.Part_Number, si.Location, si.Quantity_On_Hand, si.Quantity_Lent,
@@ -351,8 +349,7 @@ public sealed class DatabaseService
     {
         await EnsureSampleTablesExistAsync(settings);
         var results = new List<SampleTransactionRecord>();
-        await using var connection = new MySqlConnection(BuildConnectionString(settings));
-        await connection.OpenAsync();
+        await using var connection = await OpenConnectionAsync(settings);
 
         var sql = "SELECT id, Part_Number, Transaction_Type, Quantity, Operator, Project_Name, Location, Remark, Created_At FROM `sample_transactions`";
         if (!string.IsNullOrWhiteSpace(partNumber))
@@ -389,8 +386,7 @@ public sealed class DatabaseService
     public async Task ExecuteSampleTransactionAsync(AppSettings settings, SampleTransactionRecord tx, string? distributor = null)
     {
         await EnsureSampleTablesExistAsync(settings);
-        await using var connection = new MySqlConnection(BuildConnectionString(settings));
-        await connection.OpenAsync();
+        await using var connection = await OpenConnectionAsync(settings);
         await using var dbTransaction = await connection.BeginTransactionAsync();
 
         try
