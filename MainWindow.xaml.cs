@@ -1431,6 +1431,11 @@ public partial class MainWindow : Window
 
     private void SampleOperationType_Changed(object sender, RoutedEventArgs e)
     {
+        if (!IsLoaded || BtnExecuteSample == null || rbOpCheckIn == null)
+        {
+            return;
+        }
+
         if (rbOpCheckIn.IsChecked == true)
         {
             _currentSampleOperationType = SampleTransactionTypes.CheckIn;
