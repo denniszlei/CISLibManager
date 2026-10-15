@@ -22,7 +22,7 @@
 
         <!-- Main TabControl -->
         <TabControl Grid.Row="1" x:Name="MainTabControl">
-            <!-- Tab 1: CIS Library Manager (A/B/C swapped) -->
+            <!-- Tab 1: CIS Library Manager -->
             <TabItem Header=" 🏷️ CIS 零件库建库工作台 ">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
@@ -30,6 +30,7 @@
                         <RowDefinition Height="2*" MinHeight="220" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" MinHeight="170" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <!-- Top Bar: Table & PN tools -->
@@ -65,7 +66,7 @@
                         </WrapPanel>
                     </Border>
 
-                    <!-- Area A: Core Workstation & Form (Dynamic Form + Distributor/Note + Association) -->
+                    <!-- Area A: Core Workstation & Form -->
                     <GroupBox Grid.Row="1" Header="【区域 A】核心入库工作台 (Dynamic Form &amp; Database Workstation)" Margin="0,0,0,8" Padding="8">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -105,7 +106,6 @@
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <!-- Search Input Row -->
                             <WrapPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
                                 <TextBlock Text="数据源:" VerticalAlignment="Center" Margin="0,0,6,0" FontWeight="SemiBold" />
                                 <RadioButton x:Name="rbDigiKey" Content="DigiKey (权威参数/EOL审查)" IsChecked="True" VerticalAlignment="Center" Margin="0,0,12,0" />
@@ -116,7 +116,6 @@
                                 <Button x:Name="OnlineSearchButton" Width="80" Height="26" Content="搜索" Click="OnlineSearchButton_Click" />
                             </WrapPanel>
 
-                            <!-- Search Results Grid -->
                             <DataGrid Grid.Row="1" x:Name="SearchResultsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
                                       SelectionMode="Single" SelectionChanged="SearchResultsGrid_SelectionChanged" Margin="0,0,0,6" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
                                 <DataGrid.Columns>
@@ -132,7 +131,6 @@
                                 </DataGrid.Columns>
                             </DataGrid>
 
-                            <!-- Action Bar -->
                             <Grid Grid.Row="2">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -144,15 +142,14 @@
                         </Grid>
                     </GroupBox>
 
-                    <!-- Area C: Asset Intake Zone (Drag & drop or manual pick, swapped from A) -->
-                    <GroupBox Grid.Row="3" Header="【区域 C】文件上传与资产处理区 (Asset Intake Zone)" Padding="8">
+                    <!-- Area C: Asset Intake Zone -->
+                    <GroupBox Grid.Row="3" Header="【区域 C】文件上传与资产处理区 (Asset Intake Zone)" Margin="0,0,0,8" Padding="8">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
 
-                            <!-- Drag & Drop container -->
                             <Border Grid.Row="0" BorderBrush="#2563EB" BorderThickness="2" CornerRadius="6" Background="#F8FAFC"
                                     Padding="8" AllowDrop="True" Drop="ArchiveDropZone_Drop" DragOver="ArchiveDropZone_DragOver" Margin="0,0,0,6">
                                 <Grid>
@@ -174,7 +171,6 @@
                                 </Grid>
                             </Border>
 
-                            <!-- Manual file picker -->
                             <Border Grid.Row="1" Visibility="{Binding IsChecked, ElementName=ManualFilesToggle, Converter={StaticResource BooleanToVisibilityConverter}}"
                                     BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="6" Background="#FAFAFA">
                                 <Grid>
@@ -223,6 +219,16 @@
                             </Border>
                         </Grid>
                     </GroupBox>
+
+                    <!-- Tab 1 Bottom: Submit Bar (Dedicated to CIS Library) -->
+                    <Grid Grid.Row="4" Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="建库完成核对无误后，点击右侧提交入库将参数写入 MariaDB 并分发文件至 SMB 库。" Foreground="#64748B" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" x:Name="SubmitButton" Content="提交建库至 CIS" Width="140" Height="34" FontWeight="SemiBold" Background="#2563EB" Foreground="White" Click="Submit_Click" />
+                    </Grid>
                 </Grid>
             </TabItem>
 
@@ -231,12 +237,12 @@
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="3*" MinHeight="240" />
+                        <RowDefinition Height="3*" MinHeight="230" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="2*" MinHeight="180" />
+                        <RowDefinition Height="2*" MinHeight="170" />
                     </Grid.RowDefinitions>
 
-                    <!-- Top Filter & Search Bar -->
+                    <!-- Row 0: Top Mode & Filter Bar (Dual Intent: Browse All vs Search Part) -->
                     <Border Grid.Row="0" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -244,24 +250,24 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
+
+                            <!-- Left: Search with clear distinction -->
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="样品检索:" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                <TextBox x:Name="SampleSearchBox" Width="260" Height="28" VerticalContentAlignment="Center" Margin="0,0,8,0" KeyDown="SampleSearchBox_KeyDown" ToolTip="输入物料号 (PN)、型号 (MPN)、描述或库位" />
-                                <Button Content="查询" Width="70" Height="28" Click="SampleSearch_Click" Margin="0,0,8,0" />
-                                <Button Content="全部" Width="60" Height="28" Click="SampleShowAll_Click" Margin="0,0,12,0" />
+                                <Button Content="📋 查看全部样品库存" Height="28" Padding="12,0" Margin="0,0,16,0" Click="SampleShowAll_Click" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#94A3B8" ToolTip="点击载入或刷新全部样品的库存总览清单" />
+                                <TextBlock Text="按料号/型号精确检索:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#475569" />
+                                <TextBox x:Name="SampleSearchBox" Width="260" Height="28" VerticalContentAlignment="Center" Margin="0,0,8,0" KeyDown="SampleSearchBox_KeyDown" ToolTip="输入公司料号 (PN)、原厂型号 (MPN)、描述或库位" />
+                                <Button Content="查询" Width="70" Height="28" Click="SampleSearch_Click" Background="#2563EB" Foreground="White" />
                             </StackPanel>
 
+                            <!-- Right: Operations hint badge -->
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Content="📥 登记入库" Height="28" Padding="10,0" Margin="0,0,6,0" Click="SampleQuickCheckIn_Click" Background="#DCFCE7" BorderBrush="#86EFAC" FontWeight="SemiBold" />
-                                <Button Content="📤 领用/借出" Height="28" Padding="10,0" Margin="0,0,6,0" Click="SampleQuickCheckout_Click" Background="#E0F2FE" BorderBrush="#7DD3FC" FontWeight="SemiBold" />
-                                <Button Content="🔄 归还样品" Height="28" Padding="10,0" Margin="0,0,6,0" Click="SampleQuickReturn_Click" />
-                                <Button Content="🗑️ 报废核销" Height="28" Padding="10,0" Click="SampleQuickScrap_Click" Foreground="#DC2626" />
+                                <TextBlock Text="💡 提示：在下方列表点击选中目标物料，并在操作栏直接执行出入库" Foreground="#64748B" VerticalAlignment="Center" FontStyle="Italic" />
                             </StackPanel>
                         </Grid>
                     </Border>
 
-                    <!-- Sample Inventory Summary Grid -->
-                    <GroupBox Grid.Row="1" Header="研发样品库存总览" Margin="0,0,0,8" Padding="6">
+                    <!-- Row 1: Sample Inventory Summary Grid -->
+                    <GroupBox Grid.Row="1" Header="研发样品库存总览 (双击或单击选中物料)" Margin="0,0,0,8" Padding="6">
                         <DataGrid x:Name="SampleInventoryGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
                                   SelectionMode="Single" SelectionChanged="SampleInventoryGrid_SelectionChanged" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
                             <DataGrid.Columns>
@@ -280,38 +286,61 @@
                         </DataGrid>
                     </GroupBox>
 
-                    <!-- Action Details & Operations Bar -->
-                    <Grid Grid.Row="2" Margin="0,0,0,8">
-                        <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="10">
-                            <Grid>
+                    <!-- Row 2: Operation Bar with Explicit Radio Action Selection (No popup dialogs!) -->
+                    <GroupBox Grid.Row="2" Header="样品出入库变动操作" Margin="0,0,0,8" Padding="10">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Action Type Radio Selection: Direct and Intuitive -->
+                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10" VerticalAlignment="Center">
+                                <TextBlock Text="当前选定物料:" FontWeight="Bold" Margin="0,0,6,0" VerticalAlignment="Center" />
+                                <Border Background="#EFF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="4" Padding="8,2" Margin="0,0,20,0">
+                                    <TextBlock x:Name="SelectedSamplePartLabel" Text="未选中（请先在上方列表点选物料）" Foreground="#1D4ED8" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                </Border>
+
+                                <TextBlock Text="变动业务类型:" FontWeight="Bold" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                <RadioButton x:Name="rbOpCheckIn" Content="📥 登记入库" GroupName="SampleOp" IsChecked="True" VerticalAlignment="Center" Margin="0,0,12,0" FontWeight="SemiBold" Checked="SampleOperationType_Changed" />
+                                <RadioButton x:Name="rbOpConsume" Content="📤 领用消耗 (贴片消耗不归还)" GroupName="SampleOp" VerticalAlignment="Center" Margin="0,0,12,0" Checked="SampleOperationType_Changed" />
+                                <RadioButton x:Name="rbOpBorrow" Content="⏱️ 调测借出 (研发借调需归还)" GroupName="SampleOp" VerticalAlignment="Center" Margin="0,0,12,0" Checked="SampleOperationType_Changed" />
+                                <RadioButton x:Name="rbOpReturn" Content="🔄 样品归还 (在借样品还回)" GroupName="SampleOp" VerticalAlignment="Center" Margin="0,0,12,0" Checked="SampleOperationType_Changed" />
+                                <RadioButton x:Name="rbOpScrap" Content="🗑️ 损坏报废" GroupName="SampleOp" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="#DC2626" Checked="SampleOperationType_Changed" />
+                            </StackPanel>
+
+                            <!-- Operational Parameters & Execution Button -->
+                            <Grid Grid.Row="1">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="当前选定物料:" FontWeight="SemiBold" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                    <TextBlock x:Name="SelectedSamplePartLabel" Text="未选中" Foreground="#2563EB" FontWeight="SemiBold" Margin="0,0,16,0" VerticalAlignment="Center" />
-                                    <TextBlock Text="库位:" Margin="0,0,4,0" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="SampleLocationComboBox" Width="140" Height="26" Margin="0,0,12,0" />
-                                    <TextBlock Text="经办/领用人:" Margin="0,0,4,0" VerticalAlignment="Center" />
-                                    <TextBox x:Name="SampleOperatorBox" Width="90" Height="26" Margin="0,0,12,0" VerticalContentAlignment="Center" />
-                                    <TextBlock Text="数量:" Margin="0,0,4,0" VerticalAlignment="Center" />
-                                    <TextBox x:Name="SampleQuantityBox" Width="60" Height="26" Margin="0,0,12,0" Text="1" VerticalContentAlignment="Center" />
-                                    <TextBlock Text="研发项目/板卡:" Margin="0,0,4,0" VerticalAlignment="Center" />
-                                    <TextBox x:Name="SampleProjectBox" Width="110" Height="26" Margin="0,0,12,0" VerticalContentAlignment="Center" ToolTip="如 EVB_V1.0 或 项目代号" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock Text="备注:" Margin="0,0,4,0" VerticalAlignment="Center" />
-                                    <TextBox x:Name="SampleRemarkBox" Width="130" Height="26" Margin="0,0,8,0" VerticalContentAlignment="Center" />
-                                    <Button Content="执行出入库操作" Height="26" Padding="10,0" Click="ExecuteSampleOperation_Click" Background="#2563EB" Foreground="White" FontWeight="SemiBold" />
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                    </Grid>
 
-                    <!-- Sample Transaction History Logs -->
-                    <GroupBox Grid.Row="3" Header="物料出入库流水与领用借还履历" Padding="6">
+                                <WrapPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock Text="库位:" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="SampleLocationComboBox" Width="140" Height="28" Margin="0,0,12,0" />
+
+                                    <TextBlock Text="变动数量:" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                    <TextBox x:Name="SampleQuantityBox" Width="60" Height="28" Margin="0,0,12,0" Text="1" VerticalContentAlignment="Center" HorizontalContentAlignment="Center" FontWeight="Bold" />
+
+                                    <TextBlock Text="经办/领用人:" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                    <TextBox x:Name="SampleOperatorBox" Width="90" Height="28" Margin="0,0,12,0" VerticalContentAlignment="Center" ToolTip="工程师姓名" />
+
+                                    <TextBlock Text="研发项目/板卡:" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                    <TextBox x:Name="SampleProjectBox" Width="130" Height="28" Margin="0,0,12,0" VerticalContentAlignment="Center" ToolTip="如 EVB_V1.0 或 项目代号 (领用/借出必填)" />
+
+                                    <TextBlock Text="备注说明:" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                    <TextBox x:Name="SampleRemarkBox" Width="160" Height="28" Margin="0,0,12,0" VerticalContentAlignment="Center" ToolTip="样品来源、批次或损坏原因说明" />
+                                </WrapPanel>
+
+                                <Button Grid.Column="2" x:Name="BtnExecuteSample" Content="确认执行此操作" Width="130" Height="30" Padding="10,0" Click="ExecuteSampleOperation_Click" Background="#2563EB" Foreground="White" FontWeight="Bold" />
+                            </Grid>
+                        </Grid>
+                    </GroupBox>
+
+                    <!-- Row 3: Sample Transaction History Logs -->
+                    <GroupBox Grid.Row="3" Header="物料出入库流水与领用借还履历 (按时间倒序)" Padding="6">
                         <DataGrid x:Name="SampleTransactionsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
                                   GridLinesVisibility="Horizontal" HeadersVisibility="Column">
                             <DataGrid.Columns>
@@ -330,14 +359,9 @@
             </TabItem>
         </TabControl>
 
-        <!-- Status & Submit Bar -->
-        <Grid Grid.Row="2" Margin="0,8,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" x:Name="StatusText" Foreground="#444444" Text="系统就绪。请选择数据表或直接拖入 ZIP 资产包。" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0" />
-            <Button Grid.Column="1" x:Name="SubmitButton" Content="提交入库" Width="120" Height="32" FontWeight="SemiBold" Click="Submit_Click" />
+        <!-- Global Status Bar (Bottom) -->
+        <Grid Grid.Row="2" Margin="0,6,0,0">
+            <TextBlock x:Name="StatusText" Foreground="#444444" Text="系统就绪。" TextWrapping="Wrap" VerticalAlignment="Center" Margin="4,0,0,0" />
         </Grid>
     </Grid>
 </Window>

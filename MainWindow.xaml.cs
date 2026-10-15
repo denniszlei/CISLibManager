@@ -1430,37 +1430,38 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SampleQuickCheckIn_Click(object sender, RoutedEventArgs e)
+    private void SampleOperationType_Changed(object sender, RoutedEventArgs e)
     {
-        _currentSampleOperationType = SampleTransactionTypes.CheckIn;
-        SetStatus("已切换操作模式为：【📥 登记入库】。请输入数量、经办人和库位后点击执行。");
-    }
-
-    private void SampleQuickCheckout_Click(object sender, RoutedEventArgs e)
-    {
-        var res = MessageBox.Show(this, "请选择出库类型：\r\n\r\n【是】领用消耗（焊接或消耗后不归还）\r\n【否】调测借出（研发借调，后续归还）", "领用类型选择", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-        if (res == MessageBoxResult.Yes)
+        if (rbOpCheckIn.IsChecked == true)
+        {
+            _currentSampleOperationType = SampleTransactionTypes.CheckIn;
+            BtnExecuteSample.Content = "确认登记入库";
+            SetStatus("已选择模式：【📥 登记入库】。填写数量、经办人和库位后点击确认。");
+        }
+        else if (rbOpConsume.IsChecked == true)
         {
             _currentSampleOperationType = SampleTransactionTypes.Consume;
-            SetStatus("已切换操作模式为：【📤 领用消耗】。");
+            BtnExecuteSample.Content = "确认领用消耗";
+            SetStatus("已选择模式：【📤 领用消耗】。贴片调试消耗不归还，建议注明研发项目代号。");
         }
-        else if (res == MessageBoxResult.No)
+        else if (rbOpBorrow.IsChecked == true)
         {
             _currentSampleOperationType = SampleTransactionTypes.Borrow;
-            SetStatus("已切换操作模式为：【📤 调测借出】。");
+            BtnExecuteSample.Content = "确认调测借出";
+            SetStatus("已选择模式：【⏱️ 调测借出】。短期借调测试，后续可归还加回库存。");
         }
-    }
-
-    private void SampleQuickReturn_Click(object sender, RoutedEventArgs e)
-    {
-        _currentSampleOperationType = SampleTransactionTypes.Return;
-        SetStatus("已切换操作模式为：【🔄 归还样品】。将归还在借样品至库位。");
-    }
-
-    private void SampleQuickScrap_Click(object sender, RoutedEventArgs e)
-    {
-        _currentSampleOperationType = SampleTransactionTypes.Scrap;
-        SetStatus("已切换操作模式为：【🗑️ 报废核销】。");
+        else if (rbOpReturn.IsChecked == true)
+        {
+            _currentSampleOperationType = SampleTransactionTypes.Return;
+            BtnExecuteSample.Content = "确认归还样品";
+            SetStatus("已选择模式：【🔄 样品归还】。将调测在借的样品归还入库。");
+        }
+        else if (rbOpScrap.IsChecked == true)
+        {
+            _currentSampleOperationType = SampleTransactionTypes.Scrap;
+            BtnExecuteSample.Content = "确认报废核销";
+            SetStatus("已选择模式：【🗑️ 损坏报废】。器件击穿烧毁报废核销，请在备注中填写报废原因。");
+        }
     }
 
     private async void ExecuteSampleOperation_Click(object sender, RoutedEventArgs e)
