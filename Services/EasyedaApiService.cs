@@ -9,38 +9,171 @@ namespace CadenceCisLibraryManager.Services;
 
 public sealed class EasyedaApiService
 {
-    private static readonly HttpClient HttpClient = new() { Timeout = TimeSpan.FromSeconds(20) };
-
-    public async Task<IReadOnlyList<ComponentSearchResult>> SearchAsync(string keyword, int limit = 10)
+    private static readonly HttpClient HttpClient = new(new SocketsHttpHandler
     {
-        const string searchUrl = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList";
-        var trimmed = keyword.Trim();
-        var payload = JsonSerializer.Serialize(new
-        {
-            currentPage = 1,
-            pageSize = Math.Clamp(limit, 1, 30),
-            keyword = trimmed,
-            searchKeyword = trimmed
-        });
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        ConnectTimeout = TimeSpan.FromSeconds(10)
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(20)
+    };
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, searchUrl);
-        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-        request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    public async Task<IReadOnlyList<ComponentSearchResult>> SearchAsync(string keyword, int limit = 15)
+    {
+        var trimmed = keyword.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return [];
+
+        // 优先使用国内高可用 lceda.cn 官方接口（国内用户直连，无地域拦截与 Cloudflare 拦截）
+        try
+        {
+            var cnResults = await SearchLcedaAsync("lceda.cn", trimmed, limit);
+            if (cnResults.Count > 0) return cnResults;
+        }
+        catch
+        {
+            // 继续尝试备用通道
+        }
+
+        // 备用通道 1: EasyEDA 全球站接口
+        try
+        {
+            var globalResults = await SearchLcedaAsync("easyeda.com", trimmed, limit);
+            if (globalResults.Count > 0) return globalResults;
+        }
+        catch
+        {
+            // 继续尝试备用通道
+        }
+
+        // 备用通道 2: JLCPCB SMT 检索接口
+        try
+        {
+            var jlcResults = await SearchJlcpcbLegacyAsync(trimmed, limit);
+            if (jlcResults.Count > 0) return jlcResults;
+        }
+        catch
+        {
+            // 全部通道均未返回
+        }
+
+        return [];
+    }
+
+    private static async Task<IReadOnlyList<ComponentSearchResult>> SearchLcedaAsync(string host, string keyword, int limit)
+    {
+        var url = $"https://{host}/api/eda/product/search?keyword={Uri.EscapeDataString(keyword)}&page=1";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
+        request.Headers.Add("Referer", $"https://{host}/editor");
+        request.Headers.Add("Accept", "application/json, text/plain, */*");
 
         using var response = await HttpClient.SendAsync(request);
-        if (!response.IsSuccessStatusCode)
-        {
-            return [];
-        }
+        if (!response.IsSuccessStatusCode) return [];
 
         await using var stream = await response.Content.ReadAsStreamAsync();
         using var doc = await JsonDocument.ParseAsync(stream);
 
         var results = new List<ComponentSearchResult>();
-        if (!doc.RootElement.TryGetProperty("data", out var dataElem))
+        if (!doc.RootElement.TryGetProperty("result", out var resultElem) ||
+            !resultElem.TryGetProperty("productList", out var listElem) ||
+            listElem.ValueKind != JsonValueKind.Array)
         {
             return results;
         }
+
+        foreach (var item in listElem.EnumerateArray())
+        {
+            if (results.Count >= limit) break;
+
+            var code = item.TryGetProperty("code", out var cd) ? cd.GetString() : null;
+            var model = item.TryGetProperty("model", out var md) ? md.GetString() : null;
+            var brand = item.TryGetProperty("brandName", out var bd) ? bd.GetString() : null;
+            var name = item.TryGetProperty("name", out var nm) ? nm.GetString() : null;
+            var standard = item.TryGetProperty("standard", out var sd) ? sd.GetString() : null;
+            
+            long stock = 0;
+            if (item.TryGetProperty("stockNumber", out var sc))
+            {
+                if (sc.ValueKind == JsonValueKind.Number) stock = sc.GetInt64();
+                else if (sc.ValueKind == JsonValueKind.String && long.TryParse(sc.GetString(), out var sVal)) stock = sVal;
+            }
+
+            string? price = null;
+            if (item.TryGetProperty("priceList", out var pList) && pList.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var p in pList.EnumerateArray())
+                {
+                    if (p.TryGetProperty("price", out var prc))
+                    {
+                        price = "￥" + prc.ToString();
+                        break;
+                    }
+                }
+            }
+
+            var pdfUrl = item.TryGetProperty("pdfFileUrl", out var pdf) ? pdf.GetString() : null;
+            if (!string.IsNullOrWhiteSpace(pdfUrl) && pdfUrl.StartsWith("/"))
+            {
+                pdfUrl = "https://atta.szlcsc.com" + pdfUrl;
+            }
+
+            var imgUrl = item.TryGetProperty("image", out var img) ? img.GetString() : null;
+            if (!string.IsNullOrWhiteSpace(imgUrl) && imgUrl.Contains("<$>"))
+            {
+                imgUrl = imgUrl.Split("<$>")[0];
+            }
+
+            var result = new ComponentSearchResult
+            {
+                Source = "立创 / JLCPCB",
+                ManufacturerProductNumber = model ?? code ?? string.Empty,
+                Manufacturer = brand ?? string.Empty,
+                Description = name ?? string.Empty,
+                Package = standard,
+                LcscPartNumber = code,
+                Stock = stock,
+                Price = price,
+                DatasheetUrl = string.IsNullOrWhiteSpace(pdfUrl) ? null : pdfUrl,
+                PhotoUrl = string.IsNullOrWhiteSpace(imgUrl) ? null : imgUrl,
+                LifecycleStatus = stock > 0 ? "Active (现货)" : "无库存"
+            };
+
+            if (!string.IsNullOrWhiteSpace(standard)) result.Parameters["Package"] = standard;
+            if (!string.IsNullOrWhiteSpace(brand)) result.Parameters["Manufacturer"] = brand;
+            if (!string.IsNullOrWhiteSpace(model)) result.Parameters["Manufacturer Part Number"] = model;
+            if (!string.IsNullOrWhiteSpace(code)) result.Parameters["LCSC Part Number"] = code;
+
+            results.Add(result);
+        }
+
+        return results;
+    }
+
+    private static async Task<IReadOnlyList<ComponentSearchResult>> SearchJlcpcbLegacyAsync(string keyword, int limit)
+    {
+        const string searchUrl = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList";
+        var payload = JsonSerializer.Serialize(new
+        {
+            currentPage = 1,
+            pageSize = Math.Clamp(limit, 1, 30),
+            keyword,
+            searchKeyword = keyword
+        });
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, searchUrl);
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36");
+        request.Headers.Add("Origin", "https://jlcpcb.com");
+        request.Headers.Add("Referer", "https://jlcpcb.com/parts");
+
+        using var response = await HttpClient.SendAsync(request);
+        if (!response.IsSuccessStatusCode) return [];
+
+        await using var stream = await response.Content.ReadAsStreamAsync();
+        using var doc = await JsonDocument.ParseAsync(stream);
+
+        var results = new List<ComponentSearchResult>();
+        if (!doc.RootElement.TryGetProperty("data", out var dataElem)) return results;
 
         JsonElement listElem = default;
         bool hasList = false;
@@ -57,10 +190,7 @@ public sealed class EasyedaApiService
             hasList = true;
         }
 
-        if (!hasList)
-        {
-            return results;
-        }
+        if (!hasList) return results;
 
         foreach (var item in listElem.EnumerateArray())
         {
