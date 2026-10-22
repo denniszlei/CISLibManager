@@ -105,14 +105,8 @@ public partial class MainWindow : Window
         var asm = Assembly.GetEntryAssembly() ?? typeof(MainWindow).Assembly;
         var fvi = FileVersionInfo.GetVersionInfo(asm.Location);
         var ver = !string.IsNullOrWhiteSpace(fvi.ProductVersion) ? fvi.ProductVersion.Split('+')[0] : "2.0.0";
-        MessageBox.Show(this, $"OrCAD CIS 智能库与研发物料管控系统
-版本: v{ver}
-
-功能特性:
-- 🔖 料号管理：跨表全库查询、无图档先行建号、CSV 导出
-- 🌐 3 模式电气参数检索：联合搜索 / DigiKey / 立创，自动下载 Datasheet
-- 📐 CIS 图档维护：UltraLibrarian / SnapEDA 资产包分发、封装/符号/3D模型关联
-- 📦 样品库存管理：入库、领用、借出、归还、报废全生命周期追踪", "关于系统", MessageBoxButton.OK, MessageBoxImage.Information);
+        var msg = $"OrCAD CIS 智能库与研发物料管控系统\r\n版本: v{ver}\r\n\r\n功能特性:\r\n- 🔖 料号管理：跨表全库查询、无图档先行建号、CSV 导出\r\n- 🌐 3 模式电气参数检索：联合搜索 / DigiKey / 立创，自动下载 Datasheet\r\n- 📐 CIS 图档维护：UltraLibrarian / SnapEDA 资产包分发、封装/符号/3D模型关联\r\n- 📦 样品库存管理：入库、领用、借出、归还、报废全生命周期追踪";
+        MessageBox.Show(this, msg, "关于系统", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     #region Tab 1: 料号管理 (Part Number Management)
@@ -200,10 +194,8 @@ public partial class MainWindow : Window
             }
 
             File.WriteAllText(dialog.FileName, sb.ToString(), new UTF8Encoding(true));
-            MessageBox.Show(this, $"成功导出 {list.Count} 条料号记录至：
-{dialog.FileName}
-
-带 UTF-8 BOM 编码，支持 Excel 直接双击打开。", "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            var exportMsg = $"成功导出 {list.Count} 条料号记录至：\r\n{dialog.FileName}\r\n\r\n带 UTF-8 BOM 编码，支持 Excel 直接双击打开。";
+            MessageBox.Show(this, exportMsg, "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
@@ -213,8 +205,8 @@ public partial class MainWindow : Window
 
     private static string EscapeCsv(string? val)
     {
-        if (string.IsNullOrEmpty(val)) return """";
-        return $""{val.Replace(""", """")}"";
+        if (string.IsNullOrEmpty(val)) return string.Empty;
+        return $"\"{val.Replace("\"", "\"\"")}\"";
     }
 
     private async void NewComponent_Click(object sender, RoutedEventArgs e)
