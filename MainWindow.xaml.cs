@@ -834,7 +834,7 @@ public partial class MainWindow : Window
         try
         {
             SetStatus($"正在解压并智能识别资产包：{Path.GetFileName(zipPath)} ...");
-            var intake = await _archiveExtractorService.ExtractAndClassifyAsync(zipPath);
+            var intake = await _archiveExtractorService.ExtractZipAsync(zipPath);
 
             ClearSelectedFiles();
             SetSelectedFiles(FileColumnKind.Footprint, intake.FootprintFiles);
@@ -855,7 +855,7 @@ public partial class MainWindow : Window
             ApplySelectedFilesToForm();
 
             var summary = new StringBuilder();
-            summary.Append($"已识别资产包 [{intake.SourceFormat}]：");
+            summary.Append("已识别资产包：");
             if (intake.FootprintFiles.Count > 0) summary.Append($" 封装 {intake.FootprintFiles.Count} 个;");
             if (intake.SymbolFiles.Count > 0) summary.Append($" 符号库 {intake.SymbolFiles.Count} 个;");
             if (intake.Model3DFiles.Count > 0) summary.Append($" 3D模型 {intake.Model3DFiles.Count} 个;");
@@ -1262,7 +1262,7 @@ public partial class MainWindow : Window
     private async Task<string> CopySelectedFilesForDatabaseAsync(FileColumnKind kind, IReadOnlyList<string> files)
     {
         var copied = await _fileLibraryService.CopyManyToLibraryAsync(_settings, kind, files, ResolveFileConflict);
-        var successful = copied.Where(r => !string.IsNullOrWhiteSpace(r.DestinationPath)).Select(r => r.DestinationPath!).ToList();
+        var successful = copied.Where(r => !string.IsNullOrWhiteSpace(r.StoredValue)).Select(r => r.StoredValue!).ToList();
 
         if (kind == FileColumnKind.Footprint && files.Count > 0)
         {
@@ -1446,19 +1446,19 @@ public partial class MainWindow : Window
         var project = SampleProjectBox.Text.Trim();
         var remark = SampleRemarkBox.Text.Trim();
 
-        var opType = "CheckIn";
-        if (rbOpConsume.IsChecked == true) opType = "Consume";
-        else if (rbOpBorrow.IsChecked == true) opType = "Borrow";
-        else if (rbOpReturn.IsChecked == true) opType = "Return";
-        else if (rbOpScrap.IsChecked == true) opType = "Scrap";
+        var opType = SampleTransactionTypes.CheckIn;
+        if (rbOpConsume.IsChecked == true) opType = SampleTransactionTypes.Consume;
+        else if (rbOpBorrow.IsChecked == true) opType = SampleTransactionTypes.Borrow;
+        else if (rbOpReturn.IsChecked == true) opType = SampleTransactionTypes.Return;
+        else if (rbOpScrap.IsChecked == true) opType = SampleTransactionTypes.Scrap;
 
-        if ((opType == "Consume" || opType == "Borrow") && string.IsNullOrWhiteSpace(opPerson))
+        if ((opType == SampleTransactionTypes.Consume || opType == SampleTransactionTypes.Borrow) && string.IsNullOrWhiteSpace(opPerson))
         {
             MessageBox.Show(this, "领用或借出操作必须填写【经办/领用人】！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        if (opType != "CheckIn" && opType != "Return" && selectedItem.QuantityOnHand < qty)
+        if (opType != SampleTransactionTypes.CheckIn && opType != SampleTransactionTypes.Return && selectedItem.QuantityOnHand < qty)
         {
             MessageBox.Show(this, $"库存不足！当前库位可用库存仅为 {selectedItem.QuantityOnHand}，无法出库/消耗 {qty} 件。", "库存不足", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -1466,7 +1466,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var tx = new SampleTransactionItem
+            var tx = new SampleTransactionRecord
             {
                 PartNumber = selectedItem.PartNumber,
                 Location = location,
@@ -1478,7 +1478,7 @@ public partial class MainWindow : Window
                 CreatedAt = DateTime.Now
             };
 
-            await _databaseService.ExecuteSampleTransactionAsync(_settings, tx);
+            await _databaseService.ExecuteSampleTransactionAsync(_settings, tx, selectedItem.Distributor);
             MessageBox.Show(this, $"样品变动业务 [{BtnExecuteSample.Content}] 执行成功！", "变动成功", MessageBoxButton.OK, MessageBoxImage.Information);
 
             await LoadSampleInventoriesAsync(SampleSearchBox.Text.Trim());

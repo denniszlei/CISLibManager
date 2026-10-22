@@ -624,7 +624,7 @@ public sealed class DatabaseService
                     {
                         Category = tbl,
                         TableName = tbl,
-                        PartNumber = GetSafeString(reader, "Part_Number"),
+                        PartNumber = GetSafeString(reader, "Part_Number") ?? string.Empty,
                         PartType = GetSafeString(reader, "Part_Type"),
                         Value = GetSafeString(reader, "Value"),
                         Package = GetSafeString(reader, "Package"),
