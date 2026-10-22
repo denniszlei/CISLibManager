@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -31,6 +33,10 @@ public partial class MainWindow : Window
     private string? _editingKeyColumn;
     private string? _editingKeyValue;
 
+    private List<ComponentItem> _allComponents = [];
+    private List<ComponentItem> _drawingsTargetComponents = [];
+    private ComponentItem? _selectedDrawingComponent;
+
     private bool IsStandardPartMode => chkStandardPartMode.IsChecked == true;
 
     private sealed record RecordFileItem(string Title, string Path, bool Exists);
@@ -52,164 +58,313 @@ public partial class MainWindow : Window
         }
 
         InitSampleLocations();
-        _ = LoadSampleInventoriesAsync();
-        SetStatus("设置已加载。请先读取表并生成表单，或拖入资产包。");
+
+        try
+        {
+            var tables = await _databaseService.GetTablesAsync(_settings);
+            TableComboBox.ItemsSource = tables;
+            if (tables.Count > 0)
+            {
+                TableComboBox.SelectedIndex = 0;
+            }
+        }
+        catch
+        {
+            // Initial connection failure handled gracefully
+        }
+
+        _ = LoadAllComponentsAsync();
+        _ = LoadDrawingsTargetListAsync();
     }
 
     private static string GetWindowTitleWithVersion()
     {
-        const string baseTitle = "OrCAD CIS 智能库管理器";
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
-        return version is null ? baseTitle : $"{baseTitle} v{version.Major}.{version.Minor}.{version.Build}";
+        var asm = Assembly.GetEntryAssembly() ?? typeof(MainWindow).Assembly;
+        var fvi = FileVersionInfo.GetVersionInfo(asm.Location);
+        var ver = !string.IsNullOrWhiteSpace(fvi.ProductVersion)
+            ? fvi.ProductVersion.Split('+')[0]
+            : (asm.GetName().Version?.ToString(3) ?? "2.0.0");
+        return $"OrCAD CIS 智能库与研发物料管控系统 v{ver} [Enterprise Edition]";
     }
 
     private async void Settings_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new SettingsWindow(_settings) { Owner = this };
-        if (dialog.ShowDialog() == true)
+        var window = new SettingsWindow(_settings) { Owner = this };
+        if (window.ShowDialog() == true)
         {
-            _settings = dialog.Settings;
+            _settings = window.Settings;
             await _settingsService.SaveAsync(_settings);
             LoadTargetSymbolLibraries();
-            ApplySelectedFilesToForm();
-            SetStatus("设置已保存。");
+            InitSampleLocations();
+            SetStatus("设置已保存并生效。");
         }
     }
 
     private void About_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new AboutWindow { Owner = this };
-        dialog.ShowDialog();
+        var asm = Assembly.GetEntryAssembly() ?? typeof(MainWindow).Assembly;
+        var fvi = FileVersionInfo.GetVersionInfo(asm.Location);
+        var ver = !string.IsNullOrWhiteSpace(fvi.ProductVersion) ? fvi.ProductVersion.Split('+')[0] : "2.0.0";
+        MessageBox.Show(this, $"OrCAD CIS 智能库与研发物料管控系统
+版本: v{ver}
+
+功能特性:
+- 🔖 料号管理：跨表全库查询、无图档先行建号、CSV 导出
+- 🌐 3 模式电气参数检索：联合搜索 / DigiKey / 立创，自动下载 Datasheet
+- 📐 CIS 图档维护：UltraLibrarian / SnapEDA 资产包分发、封装/符号/3D模型关联
+- 📦 样品库存管理：入库、领用、借出、归还、报废全生命周期追踪", "关于系统", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
-    private async void TestConnection_Click(object sender, RoutedEventArgs e)
+    #region Tab 1: 料号管理 (Part Number Management)
+
+    private async void ShowAllComponents_Click(object sender, RoutedEventArgs e)
+    {
+        ComponentSearchBox.Text = string.Empty;
+        await LoadAllComponentsAsync();
+    }
+
+    private void ComponentSearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            ComponentSearch_Click(sender, e);
+        }
+    }
+
+    private async void ComponentSearch_Click(object sender, RoutedEventArgs e)
+    {
+        var kw = ComponentSearchBox.Text.Trim();
+        await LoadAllComponentsAsync(string.IsNullOrWhiteSpace(kw) ? null : kw);
+    }
+
+    private async Task LoadAllComponentsAsync(string? keyword = null)
     {
         try
         {
-            await _databaseService.TestConnectionAsync(_settings);
-            SetStatus("MariaDB 连接成功。");
+            SetStatus("正在从 MariaDB 跨表检索全库料号...");
+            _allComponents = await _databaseService.QueryAllComponentsAsync(_settings, keyword);
+            AllComponentsGrid.ItemsSource = _allComponents;
+            SetStatus($"已加载 {_allComponents.Count} 条料号记录。");
         }
         catch (Exception ex)
         {
-            ShowError("连接失败：" + ex.Message);
+            ShowError("查询全库料号失败：" + ex.Message);
         }
     }
 
-    #region 区域 A: 资产包导入与拖拽 (Asset Intake Zone)
-
-    private void ArchiveDropZone_DragOver(object sender, DragEventArgs e)
+    private void ExportComponentsCsv_Click(object sender, RoutedEventArgs e)
     {
-        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        var items = AllComponentsGrid.ItemsSource as IEnumerable<ComponentItem> ?? _allComponents;
+        var list = items.ToList();
+        if (list.Count == 0)
         {
-            e.Effects = DragDropEffects.Copy;
-            e.Handled = true;
+            MessageBox.Show(this, "当前列表没有数据可供导出。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
         }
-    }
 
-    private async void ArchiveDropZone_Drop(object sender, DragEventArgs e)
-    {
-        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
-        var files = (string[]?)e.Data.GetData(DataFormats.FileDrop);
-        if (files == null || files.Length == 0) return;
-
-        var zipFile = files.FirstOrDefault(f => string.Equals(Path.GetExtension(f), ".zip", StringComparison.OrdinalIgnoreCase));
-        if (zipFile != null)
+        var dialog = new SaveFileDialog
         {
-            await ProcessZipArchiveAsync(zipFile);
-        }
-        else
-        {
-            ProcessMultipleDroppedFiles(files);
-        }
-    }
-
-    private async void BrowseZipArchive_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFileDialog
-        {
-            Title = "选择 Cadence 库 ZIP 压缩包 (UltraLibrarian / SnapEDA)",
-            Filter = "Cadence 压缩包 (*.zip)|*.zip|所有文件 (*.*)|*.*",
-            Multiselect = false
+            Title = "导出料号清单",
+            Filter = "CSV 电子表格 (*.csv)|*.csv|所有文件 (*.*)|*.*",
+            FileName = $"CIS_Part_Numbers_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
         };
 
-        if (dialog.ShowDialog(this) == true)
-        {
-            await ProcessZipArchiveAsync(dialog.FileName);
-        }
-    }
+        if (dialog.ShowDialog() != true) return;
 
-    private async Task ProcessZipArchiveAsync(string zipPath)
-    {
         try
         {
-            SetStatus($"正在解包并提纯资产：{Path.GetFileName(zipPath)} ...");
-            var result = await _archiveExtractorService.ExtractZipAsync(zipPath);
+            var sb = new StringBuilder();
+            sb.AppendLine("分类/所属表,物料号(PN),原厂型号(MPN),规格/值,封装,厂商,规格书(Datasheet),渠道,图档状态,原理图符号,PCB封装,3D模型,生命周期,描述,备注");
 
-            ClearSelectedFiles();
-
-            if (result.FootprintFiles.Count > 0)
+            foreach (var item in list)
             {
-                SetSelectedFiles(FileColumnKind.Footprint, result.FootprintFiles);
-                FootprintFilesBox.Text = string.Join("; ", result.FootprintFiles.Select(Path.GetFileName));
+                var row = string.Join(",", new[]
+                {
+                    EscapeCsv(item.Category),
+                    EscapeCsv(item.PartNumber),
+                    EscapeCsv(item.ManufacturerPartNumber),
+                    EscapeCsv(item.Value),
+                    EscapeCsv(item.Package),
+                    EscapeCsv(item.Manufacturer),
+                    EscapeCsv(item.Datasheet),
+                    EscapeCsv(item.Distributor),
+                    EscapeCsv(item.DrawingStatus),
+                    EscapeCsv(item.SchematicPart),
+                    EscapeCsv(item.PcbFootprint),
+                    EscapeCsv(item.Model3D),
+                    EscapeCsv(item.LifecycleStatus),
+                    EscapeCsv(item.Description),
+                    EscapeCsv(item.Note)
+                });
+                sb.AppendLine(row);
             }
 
-            if (result.SymbolFiles.Count > 0)
-            {
-                _sourceSymbolLibraryPath = result.SymbolFiles[0];
-                SourceSymbolLibraryBox.Text = _sourceSymbolLibraryPath;
-                PopulateSymbolNamesFromLibrary(_sourceSymbolLibraryPath);
-                SetSelectedFiles(FileColumnKind.Symbol, result.SymbolFiles);
-            }
+            File.WriteAllText(dialog.FileName, sb.ToString(), new UTF8Encoding(true));
+            MessageBox.Show(this, $"成功导出 {list.Count} 条料号记录至：
+{dialog.FileName}
 
-            if (result.Model3DFiles.Count > 0)
-            {
-                SetSelectedFiles(FileColumnKind.Model3D, result.Model3DFiles);
-                Model3DFileBox.Text = string.Join("; ", result.Model3DFiles.Select(Path.GetFileName));
-            }
-
-            if (result.PinFiles.Count > 0)
-            {
-                SetSelectedFiles(FileColumnKind.Pin, result.PinFiles);
-                PinFileBox.Text = string.Join("; ", result.PinFiles.Select(Path.GetFileName));
-            }
-
-            IntakeStatusBadge.Text = $"已解包：{Path.GetFileName(zipPath)} ({result.SummaryText})";
-            IntakeStatusBadge.Foreground = new SolidColorBrush(Color.FromRgb(37, 99, 235));
-
-            if (!string.IsNullOrWhiteSpace(result.SuggestedPartName) && string.IsNullOrWhiteSpace(OnlineSearchBox.Text))
-            {
-                OnlineSearchBox.Text = result.SuggestedPartName;
-            }
-
-            ApplySelectedFilesToForm();
-            SetStatus($"资产包 {Path.GetFileName(zipPath)} 解析成功，文件已自动关联。");
+带 UTF-8 BOM 编码，支持 Excel 直接双击打开。", "导出成功", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
-            ShowError("解压提纯失败：" + ex.Message);
+            ShowError("导出 CSV 失败：" + ex.Message);
         }
     }
 
-    private void ProcessMultipleDroppedFiles(string[] files)
+    private static string EscapeCsv(string? val)
     {
-        var footprints = files.Where(f => string.Equals(Path.GetExtension(f), ".psm", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(f), ".dra", StringComparison.OrdinalIgnoreCase)).ToList();
-        var symbols = files.Where(f => string.Equals(Path.GetExtension(f), ".olb", StringComparison.OrdinalIgnoreCase)).ToList();
-        var models = files.Where(f => string.Equals(Path.GetExtension(f), ".step", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(f), ".stp", StringComparison.OrdinalIgnoreCase)).ToList();
-        var pins = files.Where(f => string.Equals(Path.GetExtension(f), ".pad", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetExtension(f), ".ssm", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (string.IsNullOrEmpty(val)) return """";
+        return $""{val.Replace(""", """")}"";
+    }
 
-        if (footprints.Count > 0) { SetSelectedFiles(FileColumnKind.Footprint, footprints); FootprintFilesBox.Text = string.Join("; ", footprints.Select(Path.GetFileName)); }
-        if (symbols.Count > 0) { _sourceSymbolLibraryPath = symbols[0]; SourceSymbolLibraryBox.Text = _sourceSymbolLibraryPath; PopulateSymbolNamesFromLibrary(_sourceSymbolLibraryPath); SetSelectedFiles(FileColumnKind.Symbol, symbols); }
-        if (models.Count > 0) { SetSelectedFiles(FileColumnKind.Model3D, models); Model3DFileBox.Text = string.Join("; ", models.Select(Path.GetFileName)); }
-        if (pins.Count > 0) { SetSelectedFiles(FileColumnKind.Pin, pins); PinFileBox.Text = string.Join("; ", pins.Select(Path.GetFileName)); }
+    private async void NewComponent_Click(object sender, RoutedEventArgs e)
+    {
+        ResetEditMode();
+        ClearDynamicForm();
+        FormEditingHint.Text = "进入新增料号模式。填写参数后点击【保存料号至数据库】即可建号（图档可留空）。";
 
-        IntakeStatusBadge.Text = $"手动拖入：符号 {symbols.Count} 个，封装 {footprints.Count} 个，3D {models.Count} 个，焊盘 {pins.Count} 个";
-        ApplySelectedFilesToForm();
-        SetStatus("已接收拖入的离散 CAD 文件。");
+        var tableName = GetSelectedTableName();
+        if (string.IsNullOrWhiteSpace(tableName) && TableComboBox.Items.Count > 0)
+        {
+            TableComboBox.SelectedIndex = 0;
+            tableName = GetSelectedTableName();
+        }
+
+        if (!string.IsNullOrWhiteSpace(tableName))
+        {
+            await LoadSelectedTableAsync();
+        }
+    }
+
+    private async void AllComponentsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var item = AllComponentsGrid.SelectedItem as ComponentItem;
+        if (item == null) return;
+
+        // Sync table combo if needed
+        var targetTable = item.TableName;
+        if (!string.IsNullOrWhiteSpace(targetTable) &&
+            !string.Equals(GetSelectedTableName(), targetTable, StringComparison.OrdinalIgnoreCase))
+        {
+            var match = TableComboBox.Items.Cast<object>()
+                .FirstOrDefault(o => o?.ToString()?.Equals(targetTable, StringComparison.OrdinalIgnoreCase) == true ||
+                                     o?.ToString()?.Contains(targetTable, StringComparison.OrdinalIgnoreCase) == true);
+            if (match != null)
+            {
+                TableComboBox.SelectedItem = match;
+            }
+        }
+
+        await EnsureColumnsLoadedAsync();
+
+        // Populate fields
+        SetInputValue("Part_Number", item.PartNumber);
+        SetInputValue("Part_Type", item.PartType);
+        SetInputValue("Value", item.Value);
+        SetInputValue("Package", item.Package);
+        SetInputValue("Description", item.Description);
+        SetInputValue("Manufacturer", item.Manufacturer);
+        SetInputValue("Manufacturer_Part_Number", item.ManufacturerPartNumber);
+        SetInputValue("Datasheet", item.Datasheet);
+        SetInputValue("Distributor", item.Distributor);
+        SetInputValue("Note", item.Note);
+        SetInputValue("Lifecycle_Status", item.LifecycleStatus);
+        SetInputValue("LCSC_Part_Number", item.LcscPartNumber);
+        SetInputValue("Schematic_Part", item.SchematicPart);
+        SetInputValue("PCB_Footprint", item.PcbFootprint);
+        SetInputValue("Model_3D", item.Model3D);
+
+        _editingKeyColumn = "Part_Number";
+        _editingKeyValue = item.PartNumber;
+        FormEditingHint.Text = $"当前正在编辑料号: {item.PartNumber} ({item.ManufacturerPartNumber}) | 分类: {item.Category}";
+    }
+
+    private void AllComponentsGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        var item = AllComponentsGrid.SelectedItem as ComponentItem;
+        if (item == null) return;
+
+        // Switch to Tab 2 and select item
+        MainTabControl.SelectedIndex = 1;
+        var target = _drawingsTargetComponents.FirstOrDefault(c => c.PartNumber == item.PartNumber);
+        if (target != null)
+        {
+            DrawingsTargetGrid.SelectedItem = target;
+            DrawingsTargetGrid.ScrollIntoView(target);
+        }
+    }
+
+    private void ResetForm_Click(object sender, RoutedEventArgs e)
+    {
+        ResetEditMode();
+        ClearDynamicForm();
+        FormEditingHint.Text = "提示：图档字段可留空，先建号即可在样品库中入库管理";
+    }
+
+    private async void SaveComponent_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_columns.Count == 0)
+            {
+                MessageBox.Show(this, "请先选择分类表并生成表单。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var tableName = GetSelectedTableName();
+            await EnsurePartNumberValueAsync(tableName);
+
+            var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings) ?? "Part_Number";
+            var pnValue = GetInputValue(partNumberColumn);
+            if (string.IsNullOrWhiteSpace(pnValue))
+            {
+                MessageBox.Show(this, "料号 (Part Number) 不能为空！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _settings.TablePartNumberRules.TryGetValue(tableName, out var rule);
+            var (isValid, errMsg) = _partNumberGeneratorService.Validate(pnValue, rule);
+            if (!isValid)
+            {
+                var proceed = MessageBox.Show(this, errMsg + "\r\n\r\n是否仍然强制保存？", "料号规范拦截", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (proceed != MessageBoxResult.Yes) return;
+            }
+
+            var values = new Dictionary<string, string?>();
+            foreach (var column in _columns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
+            {
+                if (_inputs.ContainsKey(column.Name))
+                {
+                    values[column.Name] = GetInputValue(column.Name);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_editingKeyColumn) && !string.IsNullOrWhiteSpace(_editingKeyValue))
+            {
+                await _databaseService.UpdateRowAsync(_settings, tableName, values, _columns, _editingKeyColumn, _editingKeyValue);
+                MessageBox.Show(this, $"料号 {pnValue} 记录已更新成功！", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                SetStatus($"料号 {pnValue} 已成功更新。");
+            }
+            else
+            {
+                await _databaseService.InsertRowAsync(_settings, tableName, values, _columns);
+                MessageBox.Show(this, $"料号 {pnValue} 已成功保存至数据库！\r\n\r\n可在【样品库存管理】中进行入库与借还调测；\r\n如需补齐图档，可在【CIS图档维护】中关联更新。", "建号成功", MessageBoxButton.OK, MessageBoxImage.Information);
+                SetStatus($"料号 {pnValue} 已成功建号。");
+            }
+
+            await LoadAllComponentsAsync();
+            await LoadDrawingsTargetListAsync();
+            ResetEditMode();
+        }
+        catch (Exception ex)
+        {
+            ShowError("保存料号失败：" + ex.Message);
+        }
     }
 
     #endregion
 
-    #region 区域 B: 联网搜索与参数注入器 (Online Search & Spec Enricher)
+    #region Tab 1 Area B: 3-模式联网检索与参数注入
 
     private void OnlineSearchBox_KeyDown(object sender, KeyEventArgs e)
     {
@@ -224,7 +379,7 @@ public partial class MainWindow : Window
         var keyword = OnlineSearchBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(keyword))
         {
-            MessageBox.Show(this, "请输入需要检索的元器件型号或规格描述（如 LM358DR 或 0402 10k 1%）。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, "请输入需要检索的元器件型号或规格描述（如 12402076E512A, LM358DR 或 0402 10k 1%）。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -234,7 +389,15 @@ public partial class MainWindow : Window
             SetStatus($"正在联网检索：{keyword} ...");
             IReadOnlyList<ComponentSearchResult> results;
 
-            if (rbDigiKey.IsChecked == true)
+            if (rbSearchCombined.IsChecked == true)
+            {
+                var digiTask = SearchDigiKeySafeAsync(keyword);
+                var lcscTask = _easyedaApiService.SearchAsync(keyword, limit: 15);
+                await Task.WhenAll(digiTask, lcscTask);
+
+                results = CombineSearchResults(await digiTask, await lcscTask);
+            }
+            else if (rbSearchDigiKey.IsChecked == true)
             {
                 results = await _digiKeyService.SearchAsync(_settings, keyword, limit: 15);
             }
@@ -244,7 +407,7 @@ public partial class MainWindow : Window
             }
 
             SearchResultsGrid.ItemsSource = results;
-            SelectedResultSummary.Text = $"检索到 {results.Count} 条记录。点击列表选中条目可查看详情并应用。";
+            SelectedResultSummary.Text = $"检索到 {results.Count} 条记录。点击列表选中条目可注入参数并自动下载规格书。";
             SetStatus($"检索完成，共找到 {results.Count} 条候选元器件。");
         }
         catch (Exception ex)
@@ -257,28 +420,100 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<IReadOnlyList<ComponentSearchResult>> SearchDigiKeySafeAsync(string keyword)
+    {
+        if (string.IsNullOrWhiteSpace(_settings.DigiKeyClientId) || string.IsNullOrWhiteSpace(_settings.DigiKeyClientSecret))
+        {
+            return [];
+        }
+        try
+        {
+            return await _digiKeyService.SearchAsync(_settings, keyword, limit: 15);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    private static IReadOnlyList<ComponentSearchResult> CombineSearchResults(
+        IReadOnlyList<ComponentSearchResult> digiResults,
+        IReadOnlyList<ComponentSearchResult> lcscResults)
+    {
+        var combined = new List<ComponentSearchResult>();
+        var lcscUsed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var digi in digiResults)
+        {
+            var cleanDigiMpn = CleanPartNumber(digi.ManufacturerProductNumber);
+            var match = lcscResults.FirstOrDefault(l =>
+                !string.IsNullOrWhiteSpace(cleanDigiMpn) &&
+                (string.Equals(CleanPartNumber(l.ManufacturerProductNumber), cleanDigiMpn, StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(CleanPartNumber(l.LcscPartNumber), cleanDigiMpn, StringComparison.OrdinalIgnoreCase)));
+
+            if (match != null)
+            {
+                if (!string.IsNullOrWhiteSpace(match.LcscPartNumber)) lcscUsed.Add(match.LcscPartNumber);
+                if (!string.IsNullOrWhiteSpace(match.ManufacturerProductNumber)) lcscUsed.Add(match.ManufacturerProductNumber);
+
+                digi.Source = "DigiKey + 立创";
+                digi.LcscPartNumber ??= match.LcscPartNumber;
+                digi.Model3DUuid ??= match.Model3DUuid;
+                if (!string.IsNullOrWhiteSpace(match.Price))
+                {
+                    digi.Price = !string.IsNullOrWhiteSpace(digi.Price) ? $"{digi.Price} ({match.Price})" : match.Price;
+                }
+                if ((digi.Stock ?? 0) == 0 && (match.Stock ?? 0) > 0)
+                {
+                    digi.Stock = match.Stock;
+                    digi.LifecycleStatus = match.LifecycleStatus;
+                }
+                if (string.IsNullOrWhiteSpace(digi.DatasheetUrl) && !string.IsNullOrWhiteSpace(match.DatasheetUrl))
+                {
+                    digi.DatasheetUrl = match.DatasheetUrl;
+                }
+            }
+
+            combined.Add(digi);
+        }
+
+        foreach (var lcsc in lcscResults)
+        {
+            var isUsed = (!string.IsNullOrWhiteSpace(lcsc.LcscPartNumber) && lcscUsed.Contains(lcsc.LcscPartNumber)) ||
+                         (!string.IsNullOrWhiteSpace(lcsc.ManufacturerProductNumber) && lcscUsed.Contains(lcsc.ManufacturerProductNumber));
+
+            if (!isUsed)
+            {
+                combined.Add(lcsc);
+            }
+        }
+
+        return combined;
+    }
+
+    private static string CleanPartNumber(string? pn)
+    {
+        if (string.IsNullOrWhiteSpace(pn)) return string.Empty;
+        return Regex.Replace(pn, @"[\s\-_\/]", string.Empty).ToUpperInvariant();
+    }
+
     private void SearchResultsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var item = SearchResultsGrid.SelectedItem as ComponentSearchResult;
         if (item == null)
         {
             ApplyOnlineResultButton.IsEnabled = false;
+            SelectedResultSummary.Text = "请在上方列表中选中条目以注入参数。";
             return;
         }
 
         ApplyOnlineResultButton.IsEnabled = true;
-        var statusAlert = item.IsObsolete ? "【⚠️ 停产淘汰】" : $"【{item.DisplayStatus}】";
-        var suggestedTable = InferTargetTable(item);
-        var tableTip = !string.IsNullOrWhiteSpace(suggestedTable) ? $" | 推荐分类: {suggestedTable}" : string.Empty;
-        SelectedResultSummary.Text = $"已选中: {item.ManufacturerProductNumber} ({item.Manufacturer}) {statusAlert}{tableTip} | 库存: {item.Stock ?? 0} | 价格: {item.Price ?? "--"}";
-        if (item.IsObsolete)
+        var summary = $"已选中: {item.ManufacturerProductNumber} ({item.Manufacturer}) | 封装: {item.Package ?? "-"} | 状态: {item.DisplayStatus} | 参考价: {item.Price ?? "-"}";
+        if (!string.IsNullOrWhiteSpace(item.DatasheetUrl))
         {
-            SelectedResultSummary.Foreground = new SolidColorBrush(Color.FromRgb(220, 38, 38));
+            summary += " | [含规格书]";
         }
-        else
-        {
-            SelectedResultSummary.Foreground = new SolidColorBrush(Color.FromRgb(22, 101, 52));
-        }
+        SelectedResultSummary.Text = summary;
     }
 
     private async void ApplyOnlineResultButton_Click(object sender, RoutedEventArgs e)
@@ -286,7 +521,6 @@ public partial class MainWindow : Window
         var item = SearchResultsGrid.SelectedItem as ComponentSearchResult;
         if (item == null) return;
 
-        // 智能分类识别与表格自动联动
         var suggestedTable = InferTargetTable(item);
         if (!string.IsNullOrWhiteSpace(suggestedTable) &&
             !string.Equals(GetSelectedTableName(), suggestedTable, StringComparison.OrdinalIgnoreCase))
@@ -297,39 +531,51 @@ public partial class MainWindow : Window
             {
                 TableComboBox.SelectedItem = match;
                 await EnsureColumnsLoadedAsync();
-
             }
         }
 
         if (item.IsObsolete)
         {
-            var warningText = $"【高风险停产料预警】\r\n\r\n物料 \"{item.ManufacturerProductNumber}\" 在原厂数据库中被标记为：{item.LifecycleStatus} (停产/淘汰)！\r\n\r\n在商业量产设计中录入停产料可能导致量产断供风险。是否确定仍要录入该料？";
+            var warningText = $"【高风险停产料预警】\r\n\r\n物料 \"{item.ManufacturerProductNumber}\" 在原厂数据库中被标记为：{item.LifecycleStatus} (停产/淘汰)！\r\n\r\n在商业量产设计中录入停产料可能导致断供风险。是否确定仍要录入该料？";
             var res = MessageBox.Show(this, warningText, "停产料审查拦截", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             if (res != MessageBoxResult.Yes) return;
         }
 
-        if (chkAutoEnrichLcsc.IsChecked == true && string.Equals(item.Source, "DigiKey", StringComparison.OrdinalIgnoreCase))
+        string? storedDatasheetPath = null;
+        if (chkAutoDownloadDatasheet.IsChecked == true && !string.IsNullOrWhiteSpace(item.DatasheetUrl))
         {
-            SetStatus($"正在级联立创补充物料 {item.ManufacturerProductNumber} 供应链数据...");
-            var lcscResult = await _easyedaApiService.TryEnrichWithLcscAsync(item.ManufacturerProductNumber);
-            if (lcscResult != null)
+            try
             {
-                item.LcscPartNumber ??= lcscResult.LcscPartNumber;
-                item.Price ??= lcscResult.Price;
-                item.Model3DUuid ??= lcscResult.Model3DUuid;
+                SetStatus($"正在下载规格书至 SMB / 本地目录: {item.DatasheetUrl} ...");
+                var targetName = !string.IsNullOrWhiteSpace(item.ManufacturerProductNumber)
+                    ? item.ManufacturerProductNumber
+                    : (GetInputValue("Part_Number") ?? "datasheet");
+                storedDatasheetPath = await _fileLibraryService.DownloadAndSaveDatasheetAsync(_settings, item.DatasheetUrl, targetName);
+                if (!string.IsNullOrWhiteSpace(storedDatasheetPath))
+                {
+                    SetStatus($"规格书已成功保存至文档目录: {storedDatasheetPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"规格书下载提示: {ex.Message}，暂保留原始链接。");
             }
         }
+
+        var finalDatasheet = !string.IsNullOrWhiteSpace(storedDatasheetPath) ? storedDatasheetPath : item.DatasheetUrl;
 
         SetInputValueIfColumnMatches(item.Manufacturer, "Manufacturer", "厂商", "品牌", "Mfg");
         SetInputValueIfColumnMatches(item.ManufacturerProductNumber, "Manufacturer_Part_Number", "MPN", "原厂型号", "PartNumber", "Part_Number_Mfg");
         SetInputValueIfColumnMatches(item.Category, "Part_Type", "Type", "类别", "器件类型");
         SetInputValueIfColumnMatches(item.Description, "Description", "描述", "品名", "Desc");
-        SetInputValueIfColumnMatches(item.DatasheetUrl, "Datasheet_URL", "Datasheet", "规格书", "URL");
+        SetInputValueIfColumnMatches(finalDatasheet, "Datasheet", "Datasheet_URL", "规格书", "URL");
         SetInputValueIfColumnMatches(item.Package, "Package", "封装", "Package_Type");
         SetInputValueIfColumnMatches(item.LifecycleStatus, "Lifecycle_Status", "Status", "生命周期", "状态");
         SetInputValueIfColumnMatches(item.Price, "Price_RMB", "Price", "价格", "单价");
         SetInputValueIfColumnMatches(item.LcscPartNumber, "LCSC_Part_Number", "LCSC", "立创编号", "LCSC_PN");
-        var defaultDistributor = string.Equals(item.Source, "LCSC", StringComparison.OrdinalIgnoreCase) ? "立创商城 (LCSC)" : (string.Equals(item.Source, "DigiKey", StringComparison.OrdinalIgnoreCase) ? "得捷电子 (DigiKey)" : string.Empty);
+        var defaultDistributor = string.Equals(item.Source, "LCSC", StringComparison.OrdinalIgnoreCase) || item.Source.Contains("立创")
+            ? "立创商城 (LCSC)"
+            : (string.Equals(item.Source, "DigiKey", StringComparison.OrdinalIgnoreCase) ? "得捷电子 (DigiKey)" : string.Empty);
         SetInputValueIfColumnMatches(defaultDistributor, "Distributor", "分销商", "渠道", "代理商");
 
         var hasValueParam = false;
@@ -344,7 +590,6 @@ public partial class MainWindow : Window
             }
         }
 
-        // 若不是阻容感等参数件，默认将芯片/器件的 Value 设置为主型号 (Cadence CIS 惯例)
         if (!hasValueParam && !string.IsNullOrWhiteSpace(item.ManufacturerProductNumber))
         {
             SetInputValueIfColumnMatches(item.ManufacturerProductNumber, "Value", "型号", "数值");
@@ -356,6 +601,23 @@ public partial class MainWindow : Window
         }
 
         SetStatus($"已成功将物料 {item.ManufacturerProductNumber} 的规格参数注入动态表单。");
+    }
+
+    private static string? InferTargetTable(ComponentSearchResult item)
+    {
+        var text = $"{item.Category} {item.Description} {item.ManufacturerProductNumber}".ToLowerInvariant();
+        if (text.Contains("resistor") || text.Contains("res ") || text.Contains(" 0402") && text.Contains("ohm")) return "10_resistor";
+        if (text.Contains("capacitor") || text.Contains("cap ") || text.Contains(" uF") || text.Contains(" pF")) return "11_capacitor";
+        if (text.Contains("inductor") || text.Contains(" uH") || text.Contains(" nH")) return "09_inductor";
+        if (text.Contains("diode") || text.Contains("transistor") || text.Contains("mosfet") || text.Contains("tvs")) return "07_transistor_diode";
+        if (text.Contains("connector") || text.Contains("header") || text.Contains("usb") || text.Contains("socket")) return "12_connector";
+        if (text.Contains("crystal") || text.Contains("oscillator") || text.Contains("mhz") || text.Contains("khz")) return "04_misc";
+        if (text.Contains("flash") || text.Contains("eeprom") || text.Contains("nor") || text.Contains("nand")) return "05_flash_rom";
+        if (text.Contains("ddr") || text.Contains("sdram") || text.Contains("lpddr")) return "03_ddr";
+        if (text.Contains("mcu") || text.Contains("cpu") || text.Contains("soc") || text.Contains("processor")) return "01_cpu_mcu_soc";
+        if (text.Contains("power") || text.Contains("ldo") || text.Contains("regulator") || text.Contains("pmic")) return "06_power_ic";
+        if (text.Contains("opamp") || text.Contains("amplifier") || text.Contains("interface") || text.Contains("transceiver")) return "02_common_ic";
+        return null;
     }
 
     private void SetInputValueIfColumnMatches(string? value, params string[] candidateNames)
@@ -377,30 +639,373 @@ public partial class MainWindow : Window
 
     #endregion
 
-    #region 区域 C: 核心入库工作台与标准料模式 (Core Workstation)
+    #region Tab 2: CIS 图档维护 (CIS Drawing Maintenance)
 
-    private async void RefreshTables_Click(object sender, RoutedEventArgs e)
+    private void DrawingSearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            DrawingSearch_Click(sender, e);
+        }
+    }
+
+    private async void DrawingSearch_Click(object sender, RoutedEventArgs e)
+    {
+        var kw = DrawingSearchBox.Text.Trim();
+        await LoadDrawingsTargetListAsync(string.IsNullOrWhiteSpace(kw) ? null : kw);
+    }
+
+    private async void DrawingRefresh_Click(object sender, RoutedEventArgs e)
+    {
+        DrawingSearchBox.Text = string.Empty;
+        await LoadDrawingsTargetListAsync();
+    }
+
+    private void DrawingFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        ApplyDrawingFilter();
+    }
+
+    private void ApplyDrawingFilter()
+    {
+        if (chkOnlyMissingDrawings.IsChecked == true)
+        {
+            DrawingsTargetGrid.ItemsSource = _drawingsTargetComponents.Where(c => !c.HasDrawings).ToList();
+        }
+        else
+        {
+            DrawingsTargetGrid.ItemsSource = _drawingsTargetComponents;
+        }
+    }
+
+    private async Task LoadDrawingsTargetListAsync(string? keyword = null)
     {
         try
         {
-            var tables = await _databaseService.GetTablesAsync(_settings);
-            TableComboBox.ItemsSource = tables;
-            if (tables.Count > 0)
-            {
-                TableComboBox.SelectedIndex = 0;
-            }
-            else
-            {
-                ClearDynamicForm();
-            }
-
-            SetStatus($"已读取 {tables.Count} 张表。");
+            _drawingsTargetComponents = await _databaseService.QueryAllComponentsAsync(_settings, keyword);
+            ApplyDrawingFilter();
         }
         catch (Exception ex)
         {
-            ShowError("读取表失败：" + ex.Message);
+            ShowError("加载图档物料清单失败：" + ex.Message);
         }
     }
+
+    private void DrawingsTargetGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var item = DrawingsTargetGrid.SelectedItem as ComponentItem;
+        if (item == null)
+        {
+            _selectedDrawingComponent = null;
+            SelectedDrawingPartInfo.Text = "当前选定物料: 未选定 (请在下方列表点击选中目标物料)";
+            return;
+        }
+
+        _selectedDrawingComponent = item;
+        SelectedDrawingPartInfo.Text = $"当前选定物料: {item.PartNumber} ({item.ManufacturerPartNumber} {item.Value}) | 分类: {item.Category} | 图档状态: {item.DrawingStatus}";
+
+        if (!string.IsNullOrWhiteSpace(item.PcbFootprint)) FootprintFilesBox.Text = item.PcbFootprint;
+        if (!string.IsNullOrWhiteSpace(item.SchematicPart)) SourceSymbolLibraryBox.Text = item.SchematicPart;
+        if (!string.IsNullOrWhiteSpace(item.Model3D)) Model3DFileBox.Text = item.Model3D;
+    }
+
+    private async void SubmitDrawings_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedDrawingComponent == null)
+        {
+            MessageBox.Show(this, "请先在上方目标物料列表中点击选定需要维护图档的物料！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        try
+        {
+            SetStatus($"正在向 SMB 共享库分发图档文件并更新物料 {_selectedDrawingComponent.PartNumber} ...");
+
+            if (_selectedFiles.TryGetValue(FileColumnKind.Pin, out var pinFiles) && pinFiles.Count > 0)
+            {
+                await _fileLibraryService.CopyManyToLibraryAsync(_settings, FileColumnKind.Pin, pinFiles, ResolveFileConflict);
+            }
+
+            string? footprintVal = null;
+            if (_selectedFiles.TryGetValue(FileColumnKind.Footprint, out var fpFiles) && fpFiles.Count > 0)
+            {
+                footprintVal = await CopySelectedFilesForDatabaseAsync(FileColumnKind.Footprint, fpFiles);
+            }
+            else if (!string.IsNullOrWhiteSpace(FootprintFilesBox.Text))
+            {
+                footprintVal = FootprintFilesBox.Text.Trim();
+            }
+
+            string? symbolVal = null;
+            if (_selectedFiles.TryGetValue(FileColumnKind.Symbol, out var symFiles) && symFiles.Count > 0)
+            {
+                symbolVal = await CopySelectedFilesForDatabaseAsync(FileColumnKind.Symbol, symFiles);
+            }
+            else if (!string.IsNullOrWhiteSpace(SourceSymbolLibraryBox.Text))
+            {
+                symbolVal = SourceSymbolLibraryBox.Text.Trim();
+            }
+
+            string? model3dVal = null;
+            if (_selectedFiles.TryGetValue(FileColumnKind.Model3D, out var m3dFiles) && m3dFiles.Count > 0)
+            {
+                model3dVal = await CopySelectedFilesForDatabaseAsync(FileColumnKind.Model3D, m3dFiles);
+            }
+            else if (!string.IsNullOrWhiteSpace(Model3DFileBox.Text))
+            {
+                model3dVal = Model3DFileBox.Text.Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(footprintVal) && string.IsNullOrWhiteSpace(symbolVal) && string.IsNullOrWhiteSpace(model3dVal))
+            {
+                MessageBox.Show(this, "未检测到任何需要更新的图档文件（封装、符号或 3D 模型）。请先拖拽压缩包或手动指定文件。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            await _databaseService.UpdateComponentDrawingsAsync(
+                _settings,
+                _selectedDrawingComponent.TableName,
+                _selectedDrawingComponent.PartNumber,
+                symbolVal,
+                footprintVal,
+                model3dVal
+            );
+
+            MessageBox.Show(this, $"物料 {_selectedDrawingComponent.PartNumber} 图档维护成功！\r\n\r\n已分发文件至 SMB 库并更新数据库：\r\n- 原理图符号: {symbolVal ?? "(未变动)"}\r\n- PCB封装: {footprintVal ?? "(未变动)"}\r\n- 3D模型: {model3dVal ?? "(未变动)"}", "图档更新成功", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            IntakeStatusBadge.Text = $"状态：物料 {_selectedDrawingComponent.PartNumber} 图档已更新完毕！";
+            SetStatus($"物料 {_selectedDrawingComponent.PartNumber} 图档更新成功。");
+
+            await LoadDrawingsTargetListAsync();
+            await LoadAllComponentsAsync();
+            ClearSelectedFiles();
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus("图档提交已取消。");
+        }
+        catch (Exception ex)
+        {
+            ShowError("提交图档更新失败：" + ex.Message);
+        }
+    }
+
+    #endregion
+
+    #region 文件资产拖拽解析与分发 (Asset Intake & ZIP Parsing)
+
+    private void ArchiveDropZone_DragOver(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            e.Effects = DragDropEffects.Copy;
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private async void ArchiveDropZone_Drop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        var files = (string[]?)e.Data.GetData(DataFormats.FileDrop);
+        if (files == null || files.Length == 0) return;
+
+        if (files.Length == 1 && string.Equals(Path.GetExtension(files[0]), ".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            await ProcessZipArchiveAsync(files[0]);
+        }
+        else
+        {
+            ProcessMultipleDroppedFiles(files);
+        }
+    }
+
+    private async void BrowseZipArchive_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "压缩资产包 (*.zip)|*.zip|所有文件 (*.*)|*.*",
+            Title = "选择 UltraLibrarian 或 SnapEDA 导出的 ZIP 压缩包"
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            await ProcessZipArchiveAsync(dialog.FileName);
+        }
+    }
+
+    private async Task ProcessZipArchiveAsync(string zipPath)
+    {
+        try
+        {
+            SetStatus($"正在解压并智能识别资产包：{Path.GetFileName(zipPath)} ...");
+            var intake = await _archiveExtractorService.ExtractAndClassifyAsync(zipPath);
+
+            ClearSelectedFiles();
+            SetSelectedFiles(FileColumnKind.Footprint, intake.FootprintFiles);
+            SetSelectedFiles(FileColumnKind.Symbol, intake.SymbolFiles);
+            SetSelectedFiles(FileColumnKind.Model3D, intake.Model3DFiles);
+            SetSelectedFiles(FileColumnKind.Pin, intake.PinFiles);
+
+            if (intake.SymbolFiles.Count > 0)
+            {
+                _sourceSymbolLibraryPath = intake.SymbolFiles[0];
+                SourceSymbolLibraryBox.Text = _sourceSymbolLibraryPath;
+            }
+
+            FootprintFilesBox.Text = string.Join("; ", intake.FootprintFiles);
+            Model3DFileBox.Text = string.Join("; ", intake.Model3DFiles);
+            PinFileBox.Text = string.Join("; ", intake.PinFiles);
+
+            ApplySelectedFilesToForm();
+
+            var summary = new StringBuilder();
+            summary.Append($"已识别资产包 [{intake.SourceFormat}]：");
+            if (intake.FootprintFiles.Count > 0) summary.Append($" 封装 {intake.FootprintFiles.Count} 个;");
+            if (intake.SymbolFiles.Count > 0) summary.Append($" 符号库 {intake.SymbolFiles.Count} 个;");
+            if (intake.Model3DFiles.Count > 0) summary.Append($" 3D模型 {intake.Model3DFiles.Count} 个;");
+            if (intake.PinFiles.Count > 0) summary.Append($" 焊盘引脚 {intake.PinFiles.Count} 个;");
+
+            IntakeStatusBadge.Text = summary.ToString();
+            SetStatus(summary.ToString());
+
+            if (_selectedDrawingComponent != null)
+            {
+                MessageBox.Show(this, $"{summary}\r\n\r\n已就绪，点击右下方【提交并更新物料图档】即可完成更新！", "资产包就绪", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("解析压缩包失败：" + ex.Message);
+        }
+    }
+
+    private void ProcessMultipleDroppedFiles(string[] files)
+    {
+        var footprints = new List<string>();
+        var symbols = new List<string>();
+        var models = new List<string>();
+        var pins = new List<string>();
+
+        foreach (var file in files)
+        {
+            var ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext is ".dra" or ".psm" or ".fsm" or ".osm" or ".ssm" or ".bsm") footprints.Add(file);
+            else if (ext is ".olb" or ".edn") symbols.Add(file);
+            else if (ext is ".step" or ".stp") models.Add(file);
+            else if (ext is ".pad") pins.Add(file);
+        }
+
+        if (footprints.Count > 0) SetSelectedFiles(FileColumnKind.Footprint, footprints);
+        if (symbols.Count > 0) SetSelectedFiles(FileColumnKind.Symbol, symbols);
+        if (models.Count > 0) SetSelectedFiles(FileColumnKind.Model3D, models);
+        if (pins.Count > 0) SetSelectedFiles(FileColumnKind.Pin, pins);
+
+        FootprintFilesBox.Text = string.Join("; ", footprints);
+        SourceSymbolLibraryBox.Text = string.Join("; ", symbols);
+        Model3DFileBox.Text = string.Join("; ", models);
+        PinFileBox.Text = string.Join("; ", pins);
+
+        ApplySelectedFilesToForm();
+        IntakeStatusBadge.Text = $"手动拖入文件已归类：封装 {footprints.Count}，符号 {symbols.Count}，3D {models.Count}，引脚 {pins.Count}";
+    }
+
+    private void BrowseFootprintFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Multiselect = true,
+            Filter = "封装文件 (*.dra;*.psm)|*.dra;*.psm|所有文件 (*.*)|*.*",
+            Title = "选择封装文件"
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            SetSelectedFiles(FileColumnKind.Footprint, [.. dialog.FileNames]);
+            FootprintFilesBox.Text = string.Join("; ", dialog.FileNames);
+            ApplySelectedFilesToForm();
+        }
+    }
+
+    private void BrowseSourceSymbolLibrary_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "符号库文件 (*.olb)|*.olb|所有文件 (*.*)|*.*",
+            Title = "选择源符号库"
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            _sourceSymbolLibraryPath = dialog.FileName;
+            SourceSymbolLibraryBox.Text = dialog.FileName;
+            SetSelectedFiles(FileColumnKind.Symbol, [dialog.FileName]);
+            ApplySelectedFilesToForm();
+        }
+    }
+
+    private void OpenSymbolLibraryFolders_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(_sourceSymbolLibraryPath))
+        {
+            var dir = Path.GetDirectoryName(_sourceSymbolLibraryPath);
+            if (!string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+            {
+                OpenFolder(dir);
+                return;
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(_settings.SymbolLibraryPath) && Directory.Exists(_settings.SymbolLibraryPath))
+        {
+            OpenFolder(_settings.SymbolLibraryPath);
+            return;
+        }
+        MessageBox.Show(this, "暂无可打开的符号库文件夹路径，请先在“设置”中配置符号库路径或选择源符号库。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private static void OpenFolder(string folderPath)
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = folderPath,
+            UseShellExecute = true
+        });
+    }
+
+    private void BrowseModel3DFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "3D 模型文件 (*.step;*.stp)|*.step;*.stp|所有文件 (*.*)|*.*",
+            Title = "选择 3D 模型文件"
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            SetSelectedFiles(FileColumnKind.Model3D, [dialog.FileName]);
+            Model3DFileBox.Text = dialog.FileName;
+            ApplySelectedFilesToForm();
+        }
+    }
+
+    private void BrowsePinFile_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Multiselect = true,
+            Filter = "引脚/焊盘文件 (*.pad)|*.pad|所有文件 (*.*)|*.*",
+            Title = "选择焊盘文件"
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            SetSelectedFiles(FileColumnKind.Pin, [.. dialog.FileNames]);
+            PinFileBox.Text = string.Join("; ", dialog.FileNames);
+        }
+    }
+
+    #endregion
+
+    #region 核心动态表单与标准件模式 (Dynamic Form & Standard Rules)
 
     private async void LoadColumns_Click(object sender, RoutedEventArgs e)
     {
@@ -429,10 +1034,9 @@ public partial class MainWindow : Window
     private void UpdateStandardPartModeState()
     {
         var tableName = GetSelectedTableName();
-        var rule = GetStandardPartRuleForTable(tableName);
+        var rule = _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
         if (rule != null)
         {
-            chkStandardPartMode.IsEnabled = true;
             chkStandardPartMode.IsChecked = true;
         }
         else
@@ -441,559 +1045,77 @@ public partial class MainWindow : Window
         }
     }
 
-    private StandardPartRule? GetStandardPartRuleForTable(string tableName)
-    {
-        if (string.IsNullOrWhiteSpace(tableName)) return null;
-
-        var rule = _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
-        if (rule != null) return rule;
-
-        if (tableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("10", StringComparison.OrdinalIgnoreCase))
-        {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("10", StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (tableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("11", StringComparison.OrdinalIgnoreCase))
-        {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("11", StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (tableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("09", StringComparison.OrdinalIgnoreCase))
-        {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("09", StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (tableName.Contains("transistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("diode", StringComparison.OrdinalIgnoreCase) || tableName.Contains("07", StringComparison.OrdinalIgnoreCase))
-        {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("transistor", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("diode", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("07", StringComparison.OrdinalIgnoreCase));
-        }
-
-        if (tableName.Contains("misc", StringComparison.OrdinalIgnoreCase) || tableName.Contains("04", StringComparison.OrdinalIgnoreCase))
-        {
-            return _settings.StandardPartRules.FirstOrDefault(r => r.TableName.Contains("misc", StringComparison.OrdinalIgnoreCase) || r.TableName.Contains("04", StringComparison.OrdinalIgnoreCase));
-        }
-
-        return null;
-    }
-
-    private static string? InferTargetTable(ComponentSearchResult item)
-    {
-        var textToScan = $"{item.Category} {item.Description} {item.DetailedDescription} {item.ManufacturerProductNumber} " +
-                         string.Join(" ", item.Parameters.Keys) + " " + string.Join(" ", item.Parameters.Values);
-
-        // 10 Resistor
-        if (textToScan.Contains("Resistor", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Resistance", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("贴片电阻", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("电阻", StringComparison.OrdinalIgnoreCase))
-        {
-            return "10_resistor";
-        }
-
-        // 11 Capacitor
-        if (textToScan.Contains("Capacitor", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Capacitance", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("MLCC", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("POSCAP", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("贴片电容", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("电容", StringComparison.OrdinalIgnoreCase))
-        {
-            return "11_capacitor";
-        }
-
-        // 09 Inductor
-        if (textToScan.Contains("Inductor", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Inductance", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Ferrite Bead", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Choke", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("贴片电感", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("电感", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("磁珠", StringComparison.OrdinalIgnoreCase))
-        {
-            return "09_inductor";
-        }
-
-        // 07 Transistor/Diode
-        if (textToScan.Contains("MOSFET", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Transistor", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Diode", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("TVS", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("LED", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Schottky", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Zener", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("二极管", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("三极管", StringComparison.OrdinalIgnoreCase))
-        {
-            return "07_transistor_diode";
-        }
-
-        // 01 CPU/GPU/MCU/SOC
-        if (textToScan.Contains("Microcontroller", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Microprocessor", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains(" MCU", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("SoC", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("FPGA", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("DSP", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("单片机", StringComparison.OrdinalIgnoreCase))
-        {
-            return "01_cpu_mcu_soc";
-        }
-
-        // 03 DDR
-        if (textToScan.Contains("LPDDR", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("DDR4", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("DDR5", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("DDR3", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("SDRAM", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("DRAM", StringComparison.OrdinalIgnoreCase))
-        {
-            return "03_ddr";
-        }
-
-        // 05 Flash/ROM
-        if (textToScan.Contains("NOR Flash", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("NAND Flash", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("eMMC", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("EEPROM", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Flash", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("UFS", StringComparison.OrdinalIgnoreCase))
-        {
-            return "05_flash_rom";
-        }
-
-        // 06 Power IC
-        if (textToScan.Contains("PMIC", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Voltage Regulator", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Buck", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Boost", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("LDO", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Battery Charger", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("电源管理", StringComparison.OrdinalIgnoreCase))
-        {
-            return "06_power_ic";
-        }
-
-        // 12 Connector
-        if (textToScan.Contains("Connector", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Header", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Terminal", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Receptacle", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Type-C", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("USB", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("FPC", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("连接器", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("排针", StringComparison.OrdinalIgnoreCase))
-        {
-            return "12_connector";
-        }
-
-        // 04 Misc..
-        if (textToScan.Contains("Crystal", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Oscillator", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Switch", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Buzzer", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Fuse", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("晶振", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("按键", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("保险丝", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("蜂鸣器", StringComparison.OrdinalIgnoreCase))
-        {
-            return "04_misc";
-        }
-
-        // 02 Common IC
-        if (textToScan.Contains("Amplifier", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Op Amp", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Transceiver", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Interface", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("Logic", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("ADC", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("DAC", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("运放", StringComparison.OrdinalIgnoreCase) ||
-            textToScan.Contains("比较器", StringComparison.OrdinalIgnoreCase))
-        {
-            return "02_common_ic";
-        }
-
-        return null;
-    }
-
     private void ApplyStandardPartMode(bool enable)
     {
         var tableName = GetSelectedTableName();
-        var rule = GetStandardPartRuleForTable(tableName);
+        var rule = _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
 
-        if (enable)
+        var symCol = _databaseService.FindSymbolColumn(_columns, _settings);
+        if (symCol != null)
         {
-            if (rule != null)
+            if (enable && rule != null)
             {
-                var symbolCol = _databaseService.FindSymbolColumn(_columns, _settings);
-                if (symbolCol != null && _inputs.ContainsKey(symbolCol))
-                {
-                    SetInputValue(symbolCol, rule.SymbolTemplate);
-                    _inputs[symbolCol].IsEnabled = false;
-                }
-
-                var refCol = _columns.FirstOrDefault(c => string.Equals(c.Name, "Part_Reference", StringComparison.OrdinalIgnoreCase) || string.Equals(c.Name, "Reference", StringComparison.OrdinalIgnoreCase));
-                if (refCol != null && _inputs.ContainsKey(refCol.Name))
-                {
-                    SetInputValue(refCol.Name, rule.DefaultReference);
-                }
+                SetInputValue(symCol, rule.SymbolTemplate);
             }
-
-            SetStatus("已开启标准料录入模式：共享 DISCRETE 符号与标准封装，入库时仅插入数据行，不复制物理文件。");
         }
-        else
+
+        var refCol = _columns.FirstOrDefault(c => string.Equals(c.Name, "Part_Reference", StringComparison.OrdinalIgnoreCase))?.Name;
+        if (refCol != null && enable && rule != null && !string.IsNullOrWhiteSpace(rule.DefaultReference))
         {
-            var symbolCol = _databaseService.FindSymbolColumn(_columns, _settings);
-            if (symbolCol != null && _inputs.ContainsKey(symbolCol))
-            {
-                _inputs[symbolCol].IsEnabled = true;
-            }
-            SetStatus("标准料模式已关闭。");
+            SetInputValue(refCol, rule.DefaultReference);
         }
     }
 
     private void ApplyStandardPackageDefaults(string packageCode)
     {
         var tableName = GetSelectedTableName();
-        var rule = GetStandardPartRuleForTable(tableName);
+        var rule = _settings.StandardPartRules.FirstOrDefault(r => string.Equals(r.TableName, tableName, StringComparison.OrdinalIgnoreCase));
         if (rule == null) return;
 
-        var partTypeCol = _columns.FirstOrDefault(c => string.Equals(c.Name, "Part_Type", StringComparison.OrdinalIgnoreCase));
-        var currentPartType = partTypeCol != null && _inputs.ContainsKey(partTypeCol.Name) ? GetInputValue(partTypeCol.Name) : null;
-
-        var (footprint, model3d, symbol, reference) = ResolveStandardFootprintAndModel(tableName, packageCode, rule, currentPartType);
-
-        var footprintCol = _databaseService.FindFootprintColumn(_columns, _settings);
-        if (footprintCol != null && _inputs.ContainsKey(footprintCol))
+        var cleanPkg = packageCode.Trim().ToUpperInvariant();
+        var footCol = _databaseService.FindFootprintColumn(_columns, _settings);
+        if (footCol != null)
         {
-            SetInputValue(footprintCol, footprint);
+            var fpName = (!string.IsNullOrWhiteSpace(rule.FootprintPrefix) ? rule.FootprintPrefix : "") + cleanPkg;
+            SetInputValue(footCol, fpName);
         }
 
-        var modelCol = _databaseService.FindModel3DColumn(_columns, _settings);
-        if (modelCol != null && _inputs.ContainsKey(modelCol))
+        var m3dCol = _databaseService.FindModel3DColumn(_columns, _settings);
+        if (m3dCol != null)
         {
-            SetInputValue(modelCol, model3d);
+            var m3dName = (!string.IsNullOrWhiteSpace(rule.Model3DPrefix) ? rule.Model3DPrefix : "") + cleanPkg + ".step";
+            SetInputValue(m3dCol, m3dName);
         }
-
-        if (!string.IsNullOrWhiteSpace(symbol))
-        {
-            var symbolCol = _databaseService.FindSymbolColumn(_columns, _settings);
-            if (symbolCol != null && _inputs.ContainsKey(symbolCol))
-            {
-                SetInputValue(symbolCol, symbol);
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(reference))
-        {
-            var refCol = _columns.FirstOrDefault(c => string.Equals(c.Name, "Part_Reference", StringComparison.OrdinalIgnoreCase) || string.Equals(c.Name, "Reference", StringComparison.OrdinalIgnoreCase));
-            if (refCol != null && _inputs.ContainsKey(refCol.Name))
-            {
-                SetInputValue(refCol.Name, reference);
-            }
-        }
-    }
-
-    private static (string Footprint, string Model3D, string? Symbol, string? Ref) ResolveStandardFootprintAndModel(
-        string tableName, string packageCode, StandardPartRule? rule, string? partType = null)
-    {
-        var rawPkg = packageCode.Trim();
-        var cleanPkg = rawPkg.Replace("-", string.Empty).Replace("_", string.Empty).Replace(" ", string.Empty).ToUpperInvariant();
-
-        // 10 Resistor (电阻 / 排阻)
-        if (tableName.Contains("resistor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("10", StringComparison.OrdinalIgnoreCase))
-        {
-            if (cleanPkg.Contains("0402X4") || cleanPkg.Contains("0402*4"))
-                return ("RESARRAY_0402X4", "RESARRAY_0402X4.step", @"DISCRETE\RES_NET_4", "RN");
-            if (cleanPkg.Contains("0603X4") || cleanPkg.Contains("0603*4"))
-                return ("RESARRAY_0603X4", "RESARRAY_0603X4.step", @"DISCRETE\RES_NET_4", "RN");
-
-            foreach (var size in new[] { "0201", "0402", "0603", "0805", "1206", "1210", "2010", "2512" })
-            {
-                if (cleanPkg.Contains(size))
-                    return ($"R{size}", $"R{size}.step", @"DISCRETE\RES", "R");
-            }
-        }
-
-        // 11 Capacitor (陶瓷 MLCC / 钽电容 / 固态电容)
-        if (tableName.Contains("capacitor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("11", StringComparison.OrdinalIgnoreCase))
-        {
-            if (cleanPkg.Contains("3216") || cleanPkg.Contains("EIAA") || cleanPkg.Contains("CASEA"))
-                return ("CAP_TANT_3216_A", "CAP_TANT_3216_A.step", @"DISCRETE\CAP_POL", "C");
-            if (cleanPkg.Contains("3528") || cleanPkg.Contains("EIAB") || cleanPkg.Contains("CASEB"))
-                return ("CAP_TANT_3528_B", "CAP_TANT_3528_B.step", @"DISCRETE\CAP_POL", "C");
-            if (cleanPkg.Contains("6032") || cleanPkg.Contains("EIAC") || cleanPkg.Contains("CASEC"))
-                return ("CAP_TANT_6032_C", "CAP_TANT_6032_C.step", @"DISCRETE\CAP_POL", "C");
-            if (cleanPkg.Contains("7343") || cleanPkg.Contains("EIAD") || cleanPkg.Contains("CASED"))
-                return ("CAP_TANT_7343_D", "CAP_TANT_7343_D.step", @"DISCRETE\CAP_POL", "C");
-
-            foreach (var size in new[] { "0201", "0402", "0603", "0805", "1206", "1210", "1812", "2220" })
-            {
-                if (cleanPkg.Contains(size))
-                    return ($"C{size}", $"C{size}.step", @"DISCRETE\CAP", "C");
-            }
-        }
-
-        // 09 Inductor (贴片电感 / 功率电感 / 磁珠)
-        if (tableName.Contains("inductor", StringComparison.OrdinalIgnoreCase) || tableName.Contains("09", StringComparison.OrdinalIgnoreCase))
-        {
-            var isBead = partType?.Contains("Bead", StringComparison.OrdinalIgnoreCase) == true ||
-                         rawPkg.Contains("Bead", StringComparison.OrdinalIgnoreCase) ||
-                         partType?.Contains("磁珠", StringComparison.OrdinalIgnoreCase) == true;
-
-            if (cleanPkg.Contains("4040") || cleanPkg.Contains("0440"))
-                return ("IND_4040", "IND_4040.step", @"DISCRETE\IND", "L");
-            if (cleanPkg.Contains("5050") || cleanPkg.Contains("0550"))
-                return ("IND_5050", "IND_5050.step", @"DISCRETE\IND", "L");
-            if (cleanPkg.Contains("6060") || cleanPkg.Contains("0660"))
-                return ("IND_6060", "IND_6060.step", @"DISCRETE\IND", "L");
-
-            foreach (var size in new[] { "0201", "0402", "0603", "0805", "1206" })
-            {
-                if (cleanPkg.Contains(size))
-                {
-                    return isBead
-                        ? ($"L{size}", $"L{size}.step", @"DISCRETE\BEAD", "FB")
-                        : ($"L{size}", $"L{size}.step", @"DISCRETE\IND", "L");
-                }
-            }
-        }
-
-        // 07 Transistor/Diode (二极管 / TVS / 发光二极管 / MOS / 三极管)
-        if (tableName.Contains("transistor", StringComparison.OrdinalIgnoreCase) ||
-            tableName.Contains("diode", StringComparison.OrdinalIgnoreCase) ||
-            tableName.Contains("07", StringComparison.OrdinalIgnoreCase))
-        {
-            if (cleanPkg.Contains("SOD123"))
-                return ("SOD123", "SOD123.step", @"DISCRETE\DIODE", "D");
-            if (cleanPkg.Contains("SOD323"))
-                return ("SOD323", "SOD323.step", @"DISCRETE\DIODE", "D");
-            if (cleanPkg.Contains("SOD523"))
-                return ("SOD523", "SOD523.step", @"DISCRETE\DIODE", "D");
-            if (cleanPkg.Contains("SMA") || cleanPkg.Contains("DO214AC"))
-                return ("SMA_DO214AC", "SMA_DO214AC.step", @"DISCRETE\DIODE", "D");
-            if (cleanPkg.Contains("SMB") || cleanPkg.Contains("DO214AA"))
-                return ("SMB_DO214AA", "SMB_DO214AA.step", @"DISCRETE\DIODE", "D");
-            if (cleanPkg.Contains("SMC") || cleanPkg.Contains("DO214AB"))
-                return ("SMC_DO214AB", "SMC_DO214AB.step", @"DISCRETE\DIODE", "D");
-            if (cleanPkg.Contains("SOT23"))
-                return ("SOT23", "SOT23.step", @"DISCRETE\TRANSISTOR", "Q");
-
-            var isLed = rawPkg.Contains("LED", StringComparison.OrdinalIgnoreCase) || partType?.Contains("LED", StringComparison.OrdinalIgnoreCase) == true;
-            if (isLed || cleanPkg.Contains("LED"))
-            {
-                foreach (var size in new[] { "0402", "0603", "0805", "1206" })
-                {
-                    if (cleanPkg.Contains(size))
-                        return ($"LED{size}", $"LED{size}.step", @"DISCRETE\LED", "LED");
-                }
-            }
-        }
-
-        // 04 Misc (无源晶振等)
-        if (tableName.Contains("misc", StringComparison.OrdinalIgnoreCase) || tableName.Contains("04", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var size in new[] { "3215", "3225", "2016", "5032" })
-            {
-                if (cleanPkg.Contains(size))
-                    return ($"XTAL_{size}", $"XTAL_{size}.step", @"DISCRETE\XTAL", "Y");
-            }
-        }
-
-        // 通用降级推导
-        var pfx = rule?.FootprintPrefix ?? string.Empty;
-        var mPfx = rule?.Model3DPrefix ?? string.Empty;
-        var matchedCode = rule?.SupportedPackages.FirstOrDefault(p => cleanPkg.Contains(p.ToUpperInvariant())) ?? rawPkg;
-        var resolvedFp = string.IsNullOrWhiteSpace(pfx) ? matchedCode : pfx + matchedCode;
-        var resolvedStep = (string.IsNullOrWhiteSpace(mPfx) ? matchedCode : mPfx + matchedCode) + ".step";
-        return (resolvedFp, resolvedStep, rule?.SymbolTemplate, rule?.DefaultReference);
     }
 
     private async void GenerateNumber_Click(object sender, RoutedEventArgs e)
     {
-        try
+        var tableName = GetSelectedTableName();
+        if (string.IsNullOrWhiteSpace(tableName))
         {
-            await EnsureColumnsLoadedAsync();
-
-            var tableName = GetSelectedTableName();
-            var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
-            if (partNumberColumn is null || !_inputs.ContainsKey(partNumberColumn))
-            {
-                MessageBox.Show(this, "当前表未发现可自动编号的列，请在设置中配置 Part Number 字段名。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var currentForm = GetCurrentFormValues();
-            var nextId = await _databaseService.GetNextAutoIncrementIdAsync(_settings, tableName);
-            var generatedPn = _partNumberGeneratorService.Generate(_settings, tableName, nextId, currentForm);
-
-            _settings.TablePartNumberRules.TryGetValue(tableName, out var rule);
-            var (isValid, errMsg) = _partNumberGeneratorService.Validate(generatedPn, rule);
-            if (!isValid)
-            {
-                MessageBox.Show(this, errMsg, "料号格式提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-
-            SetInputValue(partNumberColumn, generatedPn);
-            SetStatus($"已生成 Part Number：{generatedPn}");
+            MessageBox.Show(this, "请先选择表。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
         }
-        catch (Exception ex)
+
+        await EnsureColumnsLoadedAsync();
+        var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
+        if (partNumberColumn is null || !_inputs.ContainsKey(partNumberColumn))
         {
-            ShowError("生成编号失败：" + ex.Message);
+            MessageBox.Show(this, "当前表没有识别到可用的 Part Number 列。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
         }
-    }
 
-    private Dictionary<string, string?> GetCurrentFormValues()
-    {
-        var result = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (col, ctrl) in _inputs)
-        {
-            result[col] = GetInputValue(col);
-        }
-        return result;
-    }
-
-    private async void FindRecord_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            await EnsureColumnsLoadedAsync();
-
-            var partNumber = PartNumberSearchBox.Text.Trim();
-            if (partNumber.Length == 0)
-            {
-                MessageBox.Show(this, "请输入需要查找的 Part Number。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
-            if (partNumberColumn is null)
-            {
-                MessageBox.Show(this, "当前表未配置 Part Number 对应字段，无法按编号查找。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var tableName = GetSelectedTableName();
-            var record = await _databaseService.FindRowByPartNumberAsync(_settings, tableName, partNumberColumn, partNumber, _columns);
-            if (record is null)
-            {
-                MessageBox.Show(this, $"未找到 Part Number 为 {partNumber} 的记录。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            _editingKeyColumn = partNumberColumn;
-            _editingKeyValue = partNumber;
-
-            foreach (var column in _columns)
-            {
-                if (_inputs.TryGetValue(column.Name, out var control) && record.TryGetValue(column.Name, out var value))
-                {
-                    if (control is TextBox textBox) textBox.Text = value ?? string.Empty;
-                    else if (control is ComboBox comboBox) comboBox.Text = value ?? string.Empty;
-                }
-            }
-
-            ShowRecordFiles(record);
-            SetStatus($"已加载器件记录：{partNumber}（当前处于编辑模式，提交时将更新此记录）");
-        }
-        catch (Exception ex)
-        {
-            ShowError("查找记录失败：" + ex.Message);
-        }
-    }
-
-    private async void Submit_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (_columns.Count == 0)
-            {
-                MessageBox.Show(this, "请先选择表并生成表单。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var tableName = GetSelectedTableName();
-            await EnsurePartNumberValueAsync(tableName);
-
-            var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
-            if (partNumberColumn is not null)
-            {
-                var pnValue = GetInputValue(partNumberColumn);
-                _settings.TablePartNumberRules.TryGetValue(tableName, out var rule);
-                var (isValid, errMsg) = _partNumberGeneratorService.Validate(pnValue ?? string.Empty, rule);
-                if (!isValid)
-                {
-                    var proceed = MessageBox.Show(this, errMsg + "\r\n\r\n是否仍然强制提交入库？", "料号规范拦截", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-                    if (proceed != MessageBoxResult.Yes) return;
-                }
-            }
-
-            if (!IsStandardPartMode && _selectedFiles.TryGetValue(FileColumnKind.Pin, out var pinFiles))
-            {
-                await _fileLibraryService.CopyManyToLibraryAsync(_settings, FileColumnKind.Pin, pinFiles, ResolveFileConflict);
-            }
-
-            var values = new Dictionary<string, string?>();
-            foreach (var column in _columns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
-            {
-                var kind = GetFileColumnKind(column.Name);
-                if (kind == FileColumnKind.Symbol)
-                {
-                    values[column.Name] = IsStandardPartMode
-                        ? (GetInputValue(column.Name) ?? GetStandardSymbolValue(tableName))
-                        : GetSymbolDatabaseValue(column.Name);
-                }
-                else if (kind != FileColumnKind.None && _selectedFiles.TryGetValue(kind, out var files) && files.Count > 0)
-                {
-                    values[column.Name] = IsStandardPartMode
-                        ? GetInputValue(column.Name)
-                        : await CopySelectedFilesForDatabaseAsync(kind, files);
-                }
-                else if (_inputs.ContainsKey(column.Name))
-                {
-                    values[column.Name] = GetInputValue(column.Name);
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(_editingKeyColumn) && !string.IsNullOrWhiteSpace(_editingKeyValue))
-            {
-                await _databaseService.UpdateRowAsync(_settings, tableName, values, _columns, _editingKeyColumn, _editingKeyValue);
-                MessageBox.Show(this, "更新完成。", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
-                SetStatus("器件记录已更新。表单已清空，请重新生成表单后继续操作。");
-            }
-            else
-            {
-                await _databaseService.InsertRowAsync(_settings, tableName, values, _columns);
-                MessageBox.Show(this, "提交完成。", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
-                SetStatus("器件已写入数据库，相关文件已入库。表单已清空，请重新生成表单后继续提交。");
-            }
-
-            ClearDynamicForm();
-            ClearSelectedFiles();
-            ResetEditMode();
-        }
-        catch (OperationCanceledException)
-        {
-            SetStatus("提交已取消。");
-        }
-        catch (Exception ex)
-        {
-            ShowError("提交失败：" + ex.Message);
-        }
-    }
-
-    private string GetStandardSymbolValue(string tableName)
-    {
-        var rule = GetStandardPartRuleForTable(tableName);
-        return rule?.SymbolTemplate ?? @"DISCRETE\RES";
+        var nextId = await _databaseService.GetNextAutoIncrementIdAsync(_settings, tableName);
+        var currentForm = GetCurrentFormValues();
+        var generatedNumber = _partNumberGeneratorService.Generate(_settings, tableName, nextId, currentForm);
+        SetInputValue(partNumberColumn, generatedNumber);
+        SetStatus($"已生成新物料号: {generatedNumber}");
     }
 
     private async Task EnsurePartNumberValueAsync(string tableName)
     {
         var partNumberColumn = _databaseService.FindPartNumberColumn(_columns, _settings);
-        if (partNumberColumn is not null && string.IsNullOrWhiteSpace(GetInputValue(partNumberColumn)))
+        if (partNumberColumn is not null && _inputs.ContainsKey(partNumberColumn) && string.IsNullOrWhiteSpace(GetInputValue(partNumberColumn)))
         {
             var nextId = await _databaseService.GetNextAutoIncrementIdAsync(_settings, tableName);
             var currentForm = GetCurrentFormValues();
@@ -1001,110 +1123,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<string?> CopySelectedFilesForDatabaseAsync(FileColumnKind kind, IReadOnlyList<string> files)
-    {
-        var databaseSourceFiles = GetDatabaseSourceFiles(files, kind).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var copiedNames = new List<string>();
-
-        foreach (var file in files)
-        {
-            var copyResult = await _fileLibraryService.CopyToLibraryAsync(_settings, kind, file, ResolveFileConflict);
-            if (databaseSourceFiles.Contains(file) && copyResult.StoredValue is not null)
-            {
-                copiedNames.Add(copyResult.StoredValue);
-            }
-        }
-
-        if (copiedNames.Count == 0)
-        {
-            return null;
-        }
-
-        return string.Join(",", copiedNames.Select(RemoveFileExtension));
-    }
-
-    private void BrowseFootprintFiles_Click(object sender, RoutedEventArgs e)
-    {
-        var files = BrowseFiles("选择 Allegro 封装与图元文件", "Allegro 封装文件 (*.psm;*.dra)|*.psm;*.dra|所有文件 (*.*)|*.*", multiselect: true);
-        if (files.Count == 0) return;
-        SetSelectedFiles(FileColumnKind.Footprint, files);
-        FootprintFilesBox.Text = string.Join("; ", files.Select(Path.GetFileName));
-        ApplySelectedFilesToForm();
-    }
-
-    private void BrowseSourceSymbolLibrary_Click(object sender, RoutedEventArgs e)
-    {
-        var files = BrowseFiles("选择 OrCAD 符号库", "OrCAD 符号库 (*.olb)|*.olb|所有文件 (*.*)|*.*", multiselect: false);
-        if (files.Count == 0) return;
-        _sourceSymbolLibraryPath = files[0];
-        SourceSymbolLibraryBox.Text = _sourceSymbolLibraryPath;
-        PopulateSymbolNamesFromLibrary(_sourceSymbolLibraryPath);
-        SetSelectedFiles(FileColumnKind.Symbol, files);
-        ApplySelectedFilesToForm();
-    }
-
-    private void PopulateSymbolNamesFromLibrary(string libraryPath)
-    {
-        var defaultSymbol = Path.GetFileNameWithoutExtension(libraryPath);
-        var targetSymbolLibraryBox = FindName("TargetSymbolLibraryBox") as ComboBox;
-        var targetLibraryName = targetSymbolLibraryBox?.SelectedItem?.ToString() ?? defaultSymbol;
-
-        foreach (var comboBox in _symbolLibraryInputs.Values)
-        {
-            comboBox.ItemsSource = new[] { defaultSymbol };
-            comboBox.SelectedIndex = 0;
-            ApplySymbolValueToForm(comboBox, targetLibraryName, defaultSymbol);
-        }
-    }
-
-    private void OpenSymbolLibraryFolders_Click(object sender, RoutedEventArgs e)
-    {
-        if (!string.IsNullOrWhiteSpace(_sourceSymbolLibraryPath) && File.Exists(_sourceSymbolLibraryPath))
-        {
-            var dir = Path.GetDirectoryName(_sourceSymbolLibraryPath);
-            if (!string.IsNullOrWhiteSpace(dir)) OpenFolder(dir);
-        }
-        else if (!string.IsNullOrWhiteSpace(_settings.SymbolLibraryPath) && Directory.Exists(_settings.SymbolLibraryPath))
-        {
-            OpenFolder(_settings.SymbolLibraryPath);
-        }
-        else
-        {
-            MessageBox.Show(this, "符号库文件夹不存在，请检查设置。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-    }
-
     private void LoadTargetSymbolLibraries()
     {
-        // 保持空实现或刷新
-    }
-
-    private static void OpenFolder(string folderPath)
-    {
-        Process.Start(new ProcessStartInfo { FileName = folderPath, UseShellExecute = true });
-    }
-
-    private void BrowseModel3DFile_Click(object sender, RoutedEventArgs e)
-    {
-        var files = BrowseFiles("选择 3D 模型文件", "3D STEP 模型 (*.step;*.stp)|*.step;*.stp|所有文件 (*.*)|*.*", multiselect: false);
-        if (files.Count == 0) return;
-        SetSelectedFiles(FileColumnKind.Model3D, files);
-        Model3DFileBox.Text = Path.GetFileName(files[0]);
-        ApplySelectedFilesToForm();
-    }
-
-    private void BrowsePinFile_Click(object sender, RoutedEventArgs e)
-    {
-        var files = BrowseFiles("选择焊盘与引脚文件", "Allegro 焊盘文件 (*.pad;*.osm;*.bsm;*.fsm;*.ssm)|*.pad;*.osm;*.bsm;*.fsm;*.ssm|所有文件 (*.*)|*.*", multiselect: true);
-        if (files.Count == 0) return;
-        SetSelectedFiles(FileColumnKind.Pin, files);
-        PinFileBox.Text = string.Join("; ", files.Select(Path.GetFileName));
-    }
-
-    private static List<string> BrowseFiles(string title, string filter, bool multiselect)
-    {
-        var dialog = new OpenFileDialog { Title = title, Filter = filter, Multiselect = multiselect };
-        return dialog.ShowDialog() == true ? dialog.FileNames.ToList() : [];
+        // Target symbol libraries loaded if configured
     }
 
     private async Task LoadSelectedTableAsync()
@@ -1155,59 +1176,53 @@ public partial class MainWindow : Window
 
         foreach (var column in _columns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
         {
-            var itemPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 8), LastChildFill = true };
+            var itemPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 6), LastChildFill = true };
             var label = new TextBlock
             {
-                Text = column.Name,
-                Width = 140,
+                Text = column.Name + (column.IsNullable ? "" : " *"),
+                Width = 110,
                 VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = column.Comment
+                Foreground = column.IsNullable ? new SolidColorBrush(Color.FromRgb(51, 65, 85)) : new SolidColorBrush(Color.FromRgb(220, 38, 38)),
+                FontWeight = column.IsNullable ? FontWeights.Normal : FontWeights.SemiBold
             };
             DockPanel.SetDock(label, Dock.Left);
             itemPanel.Children.Add(label);
 
-            var kind = GetFileColumnKind(column.Name);
-            Control control;
-
-            if (kind == FileColumnKind.Symbol)
+            var textBox = new TextBox
             {
-                var comboBox = new ComboBox { IsEditable = true };
-                control = comboBox;
-                _symbolLibraryInputs[column.Name] = comboBox;
-            }
-            else
-            {
-                var textBox = new TextBox();
-                control = textBox;
-            }
+                Height = 26,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                ToolTip = $"数据库字段: {column.Name} ({column.DataType})"
+            };
+            _inputs[column.Name] = textBox;
+            itemPanel.Children.Add(textBox);
 
-            _inputs[column.Name] = control;
-            itemPanel.Children.Add(control);
             FormPanel.Children.Add(itemPanel);
         }
     }
 
     private string? GetInputValue(string columnName)
     {
-        if (!_inputs.TryGetValue(columnName, out var control)) return null;
-        if (control is TextBox textBox) return textBox.Text.Trim();
-        if (control is ComboBox comboBox) return comboBox.Text.Trim();
+        if (_inputs.TryGetValue(columnName, out var control) && control is TextBox tb)
+        {
+            return tb.Text;
+        }
         return null;
     }
 
     private void SetInputValue(string columnName, string? value)
     {
-        if (!_inputs.TryGetValue(columnName, out var control)) return;
-        if (control is TextBox textBox) textBox.Text = value ?? string.Empty;
-        else if (control is ComboBox comboBox) comboBox.Text = value ?? string.Empty;
+        if (_inputs.TryGetValue(columnName, out var control) && control is TextBox tb)
+        {
+            tb.Text = value ?? string.Empty;
+        }
     }
 
     private void ClearDynamicForm()
     {
         foreach (var control in _inputs.Values)
         {
-            if (control is TextBox textBox) textBox.Text = string.Empty;
-            else if (control is ComboBox comboBox) comboBox.Text = string.Empty;
+            if (control is TextBox tb) tb.Text = string.Empty;
         }
     }
 
@@ -1215,28 +1230,17 @@ public partial class MainWindow : Window
     {
         _editingKeyColumn = null;
         _editingKeyValue = null;
-        ClearRecordFiles();
-    }
-
-    private void ShowRecordFiles(IReadOnlyDictionary<string, string?> record)
-    {
-        // 保持空实现
     }
 
     private void ClearSelectedFiles()
     {
         _selectedFiles.Clear();
+        _sourceSymbolLibraryPath = null;
         FootprintFilesBox.Text = string.Empty;
         SourceSymbolLibraryBox.Text = string.Empty;
         Model3DFileBox.Text = string.Empty;
         PinFileBox.Text = string.Empty;
-    }
-
-    private void ClearRecordFiles()
-    {
-        SymbolFilesGroupBox.Visibility = Visibility.Collapsed;
-        FootprintFilesGroupBox.Visibility = Visibility.Collapsed;
-        Model3DFilesGroupBox.Visibility = Visibility.Collapsed;
+        IntakeStatusBadge.Text = "状态：等待资产包导入（未关联文件）";
     }
 
     private void SetSelectedFiles(FileColumnKind kind, List<string> files)
@@ -1246,81 +1250,45 @@ public partial class MainWindow : Window
 
     private void ApplySelectedFilesToForm()
     {
-        if (IsStandardPartMode) return;
-
-        foreach (var column in _columns)
+        foreach (var (kind, files) in _selectedFiles)
         {
-            var kind = GetFileColumnKind(column.Name);
-            if (kind != FileColumnKind.None && _selectedFiles.TryGetValue(kind, out var files) && files.Count > 0)
+            string? targetCol = kind switch
             {
-                ApplySelectedFileToForm(column.Name, kind, files);
+                FileColumnKind.Footprint => _databaseService.FindFootprintColumn(_columns, _settings),
+                FileColumnKind.Symbol => _databaseService.FindSymbolColumn(_columns, _settings),
+                FileColumnKind.Model3D => _databaseService.FindModel3DColumn(_columns, _settings),
+                _ => null
+            };
+
+            if (targetCol != null && files.Count > 0)
+            {
+                SetInputValue(targetCol, Path.GetFileNameWithoutExtension(files[0]));
             }
         }
     }
 
-    private void ApplySelectedFileToForm(string columnName, FileColumnKind kind, IReadOnlyList<string> files)
+    private async Task<string> CopySelectedFilesForDatabaseAsync(FileColumnKind kind, IReadOnlyList<string> files)
     {
-        var previewFiles = GetDatabaseSourceFiles(files, kind).ToList();
-        if (previewFiles.Count == 0) return;
+        var copied = await _fileLibraryService.CopyManyToLibraryAsync(_settings, kind, files, ResolveFileConflict);
+        var successful = copied.Where(r => !string.IsNullOrWhiteSpace(r.DestinationPath)).Select(r => r.DestinationPath!).ToList();
 
-        if (kind == FileColumnKind.Symbol)
+        if (kind == FileColumnKind.Footprint && files.Count > 0)
         {
-            var libName = Path.GetFileNameWithoutExtension(previewFiles[0]);
-            var symbolName = libName;
-            SetInputValue(columnName, $"{libName}\\{symbolName}");
+            return Path.GetFileNameWithoutExtension(files[0]);
         }
-        else
+
+        return string.Join(";", successful);
+    }
+
+    private FileConflictAction ResolveFileConflict(string targetPath)
+    {
+        var result = MessageBox.Show(this, $"文件已存在：{targetPath}\r\n是否覆盖已有文件？\r\n[是] 覆盖，[否] 自动重命名，[取消] 跳过此文件", "文件冲突", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
+        return result switch
         {
-            var value = string.Join(",", previewFiles.Select(Path.GetFileNameWithoutExtension));
-            SetInputValue(columnName, value);
-        }
-    }
-
-    private void ApplySymbolValueToForm(ComboBox comboBox, string targetLibraryName, string symbolName)
-    {
-        var cleanLibraryName = RemoveFileExtension(targetLibraryName);
-        var cleanSymbolName = RemoveFileExtension(symbolName);
-        comboBox.Text = $"{cleanLibraryName}\\{cleanSymbolName}";
-    }
-
-    private string? GetSymbolDatabaseValue(string columnName)
-    {
-        var text = GetInputValue(columnName);
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        return text;
-    }
-
-    private static IEnumerable<string> GetDatabaseSourceFiles(IEnumerable<string> files, FileColumnKind kind)
-    {
-        if (kind == FileColumnKind.Footprint)
-        {
-            return files.Where(file => string.Equals(Path.GetExtension(file), ".psm", StringComparison.OrdinalIgnoreCase));
-        }
-        return files;
-    }
-
-    private static string RemoveFileExtension(string fileName)
-    {
-        return Path.GetFileNameWithoutExtension(fileName);
-    }
-
-    private FileColumnKind GetFileColumnKind(string columnName)
-    {
-        if (MatchesConfiguredColumn(columnName, _settings.FootprintColumnNames)) return FileColumnKind.Footprint;
-        if (MatchesConfiguredColumn(columnName, _settings.SymbolColumnNames)) return FileColumnKind.Symbol;
-        if (MatchesConfiguredColumn(columnName, _settings.Model3DColumnNames)) return FileColumnKind.Model3D;
-        return FileColumnKind.None;
-    }
-
-    private static bool MatchesConfiguredColumn(string columnName, IEnumerable<string> configuredNames)
-    {
-        var normalized = NormalizeColumnName(columnName);
-        return configuredNames.Any(c => string.Equals(NormalizeColumnName(c), normalized, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string NormalizeColumnName(string name)
-    {
-        return name.Replace(" ", string.Empty).Replace("_", string.Empty);
+            MessageBoxResult.Yes => FileConflictAction.Overwrite,
+            MessageBoxResult.No => FileConflictAction.Rename,
+            _ => FileConflictAction.Skip
+        };
     }
 
     private string GetSelectedTableName()
@@ -1328,17 +1296,14 @@ public partial class MainWindow : Window
         return TableComboBox.SelectedItem?.ToString() ?? string.Empty;
     }
 
-    private FileConflictAction ResolveFileConflict(string destinationPath)
+    private Dictionary<string, string?> GetCurrentFormValues()
     {
-        var fileName = Path.GetFileName(destinationPath);
-        var conflictMsg = $"文件已存在：{fileName}\r\n\r\n是否覆盖？\r\n- 点击“是”覆盖当前文件\r\n- 点击“否”保留已有文件跳过拷贝\r\n- 点击“取消”终止本次入库";
-        var result = MessageBox.Show(this, conflictMsg, "文件冲突处理", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-        return result switch
+        var dict = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (col, ctl) in _inputs)
         {
-            MessageBoxResult.Yes => FileConflictAction.Overwrite,
-            MessageBoxResult.No => FileConflictAction.Skip,
-            _ => FileConflictAction.Cancel
-        };
+            if (ctl is TextBox tb) dict[col] = tb.Text;
+        }
+        return dict;
     }
 
     private void SetStatus(string message)
@@ -1348,14 +1313,13 @@ public partial class MainWindow : Window
 
     private void ShowError(string message)
     {
-        SetStatus("错误：" + message);
+        StatusText.Text = "错误: " + message;
         MessageBox.Show(this, message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
     }
+
     #endregion
 
-    #region 研发样品库存管控逻辑
-
-    private string _currentSampleOperationType = SampleTransactionTypes.CheckIn;
+    #region Tab 3: 样品库存管理 (Sample Inventory Management)
 
     private void InitSampleLocations()
     {
@@ -1372,24 +1336,24 @@ public partial class MainWindow : Window
         {
             var list = await _databaseService.QuerySampleInventoriesAsync(_settings, keyword);
             SampleInventoryGrid.ItemsSource = list;
-            var txList = await _databaseService.QuerySampleTransactionsAsync(_settings, null, 100);
-            SampleTransactionsGrid.ItemsSource = txList;
+            SetStatus($"已载入 {list.Count} 条样品库存记录。");
         }
         catch (Exception ex)
         {
-            SetStatus($"加载样品数据失败: {ex.Message}");
+            ShowError("加载样品库存失败：" + ex.Message);
         }
     }
 
     private async void SampleSearch_Click(object sender, RoutedEventArgs e)
     {
-        await LoadSampleInventoriesAsync(SampleSearchBox.Text.Trim());
+        var kw = SampleSearchBox.Text.Trim();
+        await LoadSampleInventoriesAsync(string.IsNullOrWhiteSpace(kw) ? null : kw);
     }
 
     private async void SampleShowAll_Click(object sender, RoutedEventArgs e)
     {
         SampleSearchBox.Text = string.Empty;
-        await LoadSampleInventoriesAsync(null);
+        await LoadSampleInventoriesAsync();
     }
 
     private void SampleSearchBox_KeyDown(object sender, KeyEventArgs e)
@@ -1400,131 +1364,139 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SampleInventoryGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void SampleInventoryGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (SampleInventoryGrid.SelectedItem is SampleInventoryItem item)
+        var item = SampleInventoryGrid.SelectedItem as SampleInventoryItem;
+        if (item == null)
         {
-            SelectedSamplePartLabel.Text = $"{item.PartNumber} ({item.Value ?? item.ManufacturerPartNumber ?? ""})";
-            if (!string.IsNullOrWhiteSpace(item.Location))
-            {
-                SampleLocationComboBox.SelectedItem = item.Location;
-                if (SampleLocationComboBox.SelectedItem == null)
-                {
-                    SampleLocationComboBox.Text = item.Location;
-                }
-            }
-            _ = LoadSampleTransactionsForPartAsync(item.PartNumber);
+            SelectedSamplePartLabel.Text = "未选中（请先在上方列表点选物料）";
+            SampleTransactionsGrid.ItemsSource = null;
+            return;
         }
+
+        SelectedSamplePartLabel.Text = $"{item.PartNumber} ({item.ManufacturerPartNumber} {item.Value}) | 在库: {item.QuantityOnHand} | 库位: {item.Location}";
+
+        if (!string.IsNullOrWhiteSpace(item.Location))
+        {
+            SampleLocationComboBox.Text = item.Location;
+        }
+
+        await LoadSampleTransactionsForPartAsync(item.PartNumber);
     }
 
     private async Task LoadSampleTransactionsForPartAsync(string partNumber)
     {
         try
         {
-            var txList = await _databaseService.QuerySampleTransactionsAsync(_settings, partNumber, 50);
-            SampleTransactionsGrid.ItemsSource = txList;
+            var txs = await _databaseService.QuerySampleTransactionsAsync(_settings, partNumber);
+            SampleTransactionsGrid.ItemsSource = txs;
         }
-        catch
+        catch (Exception ex)
         {
+            ShowError("加载物料出入库履历失败：" + ex.Message);
         }
     }
 
     private void SampleOperationType_Changed(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded || BtnExecuteSample == null || rbOpCheckIn == null)
-        {
-            return;
-        }
+        if (!IsLoaded || BtnExecuteSample == null) return;
 
         if (rbOpCheckIn.IsChecked == true)
         {
-            _currentSampleOperationType = SampleTransactionTypes.CheckIn;
-            BtnExecuteSample.Content = "确认登记入库";
-            SetStatus("已选择模式：【📥 登记入库】。填写数量、经办人和库位后点击确认。");
+            BtnExecuteSample.Content = "📥 确认登记入库";
+            BtnExecuteSample.Background = new SolidColorBrush(Color.FromRgb(37, 99, 235));
         }
         else if (rbOpConsume.IsChecked == true)
         {
-            _currentSampleOperationType = SampleTransactionTypes.Consume;
-            BtnExecuteSample.Content = "确认领用消耗";
-            SetStatus("已选择模式：【📤 领用消耗】。贴片调试消耗不归还，建议注明研发项目代号。");
+            BtnExecuteSample.Content = "📤 确认领用出库";
+            BtnExecuteSample.Background = new SolidColorBrush(Color.FromRgb(16, 185, 129));
         }
         else if (rbOpBorrow.IsChecked == true)
         {
-            _currentSampleOperationType = SampleTransactionTypes.Borrow;
-            BtnExecuteSample.Content = "确认调测借出";
-            SetStatus("已选择模式：【⏱️ 调测借出】。短期借调测试，后续可归还加回库存。");
+            BtnExecuteSample.Content = "⏱️ 确认借出登记";
+            BtnExecuteSample.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11));
         }
         else if (rbOpReturn.IsChecked == true)
         {
-            _currentSampleOperationType = SampleTransactionTypes.Return;
-            BtnExecuteSample.Content = "确认归还样品";
-            SetStatus("已选择模式：【🔄 样品归还】。将调测在借的样品归还入库。");
+            BtnExecuteSample.Content = "🔄 确认样品归还";
+            BtnExecuteSample.Background = new SolidColorBrush(Color.FromRgb(99, 102, 241));
         }
         else if (rbOpScrap.IsChecked == true)
         {
-            _currentSampleOperationType = SampleTransactionTypes.Scrap;
-            BtnExecuteSample.Content = "确认报废核销";
-            SetStatus("已选择模式：【🗑️ 损坏报废】。器件击穿烧毁报废核销，请在备注中填写报废原因。");
+            BtnExecuteSample.Content = "🗑️ 确认损坏报废";
+            BtnExecuteSample.Background = new SolidColorBrush(Color.FromRgb(220, 38, 38));
         }
     }
 
     private async void ExecuteSampleOperation_Click(object sender, RoutedEventArgs e)
     {
-        var item = SampleInventoryGrid.SelectedItem as SampleInventoryItem;
-        var pn = item?.PartNumber ?? SampleSearchBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(pn))
+        var selectedItem = SampleInventoryGrid.SelectedItem as SampleInventoryItem;
+        if (selectedItem == null)
         {
-            MessageBox.Show(this, "请先在上方列表中选中物料，或在检索框中输入要操作的物料号 (Part Number)！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "请先在上方库存列表中选中需要变动的元器件物料！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         if (!int.TryParse(SampleQuantityBox.Text.Trim(), out var qty) || qty <= 0)
         {
-            MessageBox.Show(this, "数量必须是大于 0 的有效整数！", "格式错误", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var op = SampleOperatorBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(op))
-        {
-            MessageBox.Show(this, "请输入经办人/领用人姓名！", "必填项缺失", MessageBoxButton.OK, MessageBoxImage.Warning);
-            SampleOperatorBox.Focus();
+            MessageBox.Show(this, "变动数量必须为大于 0 的有效整数。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         var location = SampleLocationComboBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(location))
         {
-            location = "默认样品柜";
+            MessageBox.Show(this, "请指定或选择物料存放库位。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
         }
 
-        var tx = new SampleTransactionRecord
+        var opPerson = SampleOperatorBox.Text.Trim();
+        var project = SampleProjectBox.Text.Trim();
+        var remark = SampleRemarkBox.Text.Trim();
+
+        var opType = "CheckIn";
+        if (rbOpConsume.IsChecked == true) opType = "Consume";
+        else if (rbOpBorrow.IsChecked == true) opType = "Borrow";
+        else if (rbOpReturn.IsChecked == true) opType = "Return";
+        else if (rbOpScrap.IsChecked == true) opType = "Scrap";
+
+        if ((opType == "Consume" || opType == "Borrow") && string.IsNullOrWhiteSpace(opPerson))
         {
-            PartNumber = pn,
-            TransactionType = _currentSampleOperationType,
-            Quantity = qty,
-            Operator = op,
-            ProjectName = SampleProjectBox.Text.Trim(),
-            Location = location,
-            Remark = SampleRemarkBox.Text.Trim(),
-            CreatedAt = DateTime.Now
-        };
+            MessageBox.Show(this, "领用或借出操作必须填写【经办/领用人】！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        if (opType != "CheckIn" && opType != "Return" && selectedItem.QuantityOnHand < qty)
+        {
+            MessageBox.Show(this, $"库存不足！当前库位可用库存仅为 {selectedItem.QuantityOnHand}，无法出库/消耗 {qty} 件。", "库存不足", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         try
         {
-            SetStatus($"正在执行样品【{tx.TransactionType}】操作...");
-            await _databaseService.ExecuteSampleTransactionAsync(_settings, tx, item?.Distributor);
-            MessageBox.Show(this, $"物料 {pn} 成功完成【{tx.TransactionType}】操作！\r\n数量: {qty}，库位: {location}，操作人: {op}", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
-            SetStatus($"样品操作成功完成：{pn} {tx.TransactionType} {qty} PCS。");
-            await LoadSampleInventoriesAsync(pn);
+            var tx = new SampleTransactionItem
+            {
+                PartNumber = selectedItem.PartNumber,
+                Location = location,
+                TransactionType = opType,
+                Quantity = qty,
+                Operator = opPerson,
+                ProjectName = project,
+                Remark = remark,
+                CreatedAt = DateTime.Now
+            };
+
+            await _databaseService.ExecuteSampleTransactionAsync(_settings, tx);
+            MessageBox.Show(this, $"样品变动业务 [{BtnExecuteSample.Content}] 执行成功！", "变动成功", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            await LoadSampleInventoriesAsync(SampleSearchBox.Text.Trim());
+            await LoadSampleTransactionsForPartAsync(selectedItem.PartNumber);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"执行失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-            SetStatus($"样品操作失败: {ex.Message}");
+            ShowError("执行样品操作失败：" + ex.Message);
         }
     }
 
     #endregion
-
 }

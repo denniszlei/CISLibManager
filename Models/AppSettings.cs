@@ -20,6 +20,8 @@ public sealed class AppSettings
 
     public string PinLibraryPath { get; set; } = string.Empty;
 
+    public string DatasheetLibraryPath { get; set; } = string.Empty;
+
     public bool StoreRelativeLibraryFileName { get; set; } = true;
 
     // 默认流水号宽度 (与两位前缀组合，如 10 + 0000000001 -> 100000000001 构成长达12位的标准大厂料号)
@@ -32,6 +34,8 @@ public sealed class AppSettings
     public List<string> SymbolColumnNames { get; set; } = ["Schematic_Part", "Schematic Symbol", "Symbol", "SchSymbol", "符号", "原理图符号"];
 
     public List<string> Model3DColumnNames { get; set; } = ["Model_3D", "3D Model", "Model3D", "StepModel", "模型", "三维模型"];
+
+    public List<string> DatasheetColumnNames { get; set; } = ["Datasheet", "DataSheet", "DatasheetUrl", "规格书", "器件手册", "手册"];
 
     // 预置 01~13 经典大厂料号前缀 (无 cis_ 前缀)
     public Dictionary<string, string> TablePartNumberPrefixes { get; set; } = new()

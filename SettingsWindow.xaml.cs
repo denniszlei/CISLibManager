@@ -130,6 +130,11 @@ public partial class SettingsWindow : Window
         BrowseFolderInto(PinPathBox);
     }
 
+    private void BrowseDatasheetPath_Click(object sender, RoutedEventArgs e)
+    {
+        BrowseFolderInto(DatasheetPathBox);
+    }
+
     private void ResetStandardRules_Click(object sender, RoutedEventArgs e)
     {
         _standardPartRuleRows.Clear();
@@ -196,12 +201,14 @@ public partial class SettingsWindow : Window
         SymbolPathBox.Text = _settings.SymbolLibraryPath;
         Model3DPathBox.Text = _settings.Model3DLibraryPath;
         PinPathBox.Text = _settings.PinLibraryPath;
+        DatasheetPathBox.Text = _settings.DatasheetLibraryPath;
         StoreFileNameCheckBox.IsChecked = _settings.StoreRelativeLibraryFileName;
         PartNumberIdWidthBox.Text = Math.Max(1, _settings.PartNumberIdWidth).ToString();
         PartNumberColumnsBox.Text = JoinNames(_settings.PartNumberColumnNames);
         FootprintColumnsBox.Text = JoinNames(_settings.FootprintColumnNames);
         SymbolColumnsBox.Text = JoinNames(_settings.SymbolColumnNames);
         Model3DColumnsBox.Text = JoinNames(_settings.Model3DColumnNames);
+        DatasheetColumnsBox.Text = JoinNames(_settings.DatasheetColumnNames);
 
         DigiKeyClientIdBox.Text = _settings.DigiKeyClientId;
         DigiKeyClientSecretBox.Password = _settings.DigiKeyClientSecret;
@@ -257,12 +264,14 @@ public partial class SettingsWindow : Window
         _settings.SymbolLibraryPath = SymbolPathBox.Text.Trim();
         _settings.Model3DLibraryPath = Model3DPathBox.Text.Trim();
         _settings.PinLibraryPath = PinPathBox.Text.Trim();
+        _settings.DatasheetLibraryPath = DatasheetPathBox.Text.Trim();
         _settings.StoreRelativeLibraryFileName = StoreFileNameCheckBox.IsChecked == true;
         _settings.PartNumberIdWidth = width;
         _settings.PartNumberColumnNames = SplitNames(PartNumberColumnsBox.Text);
         _settings.FootprintColumnNames = SplitNames(FootprintColumnsBox.Text);
         _settings.SymbolColumnNames = SplitNames(SymbolColumnsBox.Text);
         _settings.Model3DColumnNames = SplitNames(Model3DColumnsBox.Text);
+        _settings.DatasheetColumnNames = SplitNames(DatasheetColumnsBox.Text);
 
         _settings.DigiKeyClientId = DigiKeyClientIdBox.Text.Trim();
         _settings.DigiKeyClientSecret = DigiKeyClientSecretBox.Password.Trim();

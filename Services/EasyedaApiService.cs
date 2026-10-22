@@ -14,16 +14,18 @@ public sealed class EasyedaApiService
     public async Task<IReadOnlyList<ComponentSearchResult>> SearchAsync(string keyword, int limit = 10)
     {
         const string searchUrl = "https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList";
+        var trimmed = keyword.Trim();
         var payload = JsonSerializer.Serialize(new
         {
             currentPage = 1,
             pageSize = Math.Clamp(limit, 1, 30),
-            searchKeyword = keyword.Trim()
+            keyword = trimmed,
+            searchKeyword = trimmed
         });
 
         using var request = new HttpRequestMessage(HttpMethod.Post, searchUrl);
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-        request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CadenceCisLibraryManager");
+        request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
         using var response = await HttpClient.SendAsync(request);
         if (!response.IsSuccessStatusCode)
@@ -35,9 +37,27 @@ public sealed class EasyedaApiService
         using var doc = await JsonDocument.ParseAsync(stream);
 
         var results = new List<ComponentSearchResult>();
-        if (!doc.RootElement.TryGetProperty("data", out var dataElem) ||
-            !dataElem.TryGetProperty("list", out var listElem) ||
-            listElem.ValueKind != JsonValueKind.Array)
+        if (!doc.RootElement.TryGetProperty("data", out var dataElem))
+        {
+            return results;
+        }
+
+        JsonElement listElem = default;
+        bool hasList = false;
+
+        if (dataElem.TryGetProperty("componentPageInfo", out var pageInfo) &&
+            pageInfo.TryGetProperty("list", out listElem) &&
+            listElem.ValueKind == JsonValueKind.Array)
+        {
+            hasList = true;
+        }
+        else if (dataElem.TryGetProperty("list", out listElem) &&
+                 listElem.ValueKind == JsonValueKind.Array)
+        {
+            hasList = true;
+        }
+
+        if (!hasList)
         {
             return results;
         }
@@ -50,6 +70,8 @@ public sealed class EasyedaApiService
             var desc = item.TryGetProperty("describe", out var ds) ? ds.GetString() : null;
             var stock = item.TryGetProperty("stockCount", out var sc) && sc.ValueKind == JsonValueKind.Number ? sc.GetInt64() : 0;
             var pkg = item.TryGetProperty("componentSpecificationEn", out var cs) ? cs.GetString() : null;
+            var datasheetUrl = item.TryGetProperty("dataManualUrl", out var dm) ? dm.GetString() : null;
+            var imageUrl = item.TryGetProperty("componentImageUrl", out var ci) ? ci.GetString() : null;
 
             string? price = null;
             if (item.TryGetProperty("componentPrices", out var prices) && prices.ValueKind == JsonValueKind.Array)
@@ -74,8 +96,23 @@ public sealed class EasyedaApiService
                 LcscPartNumber = lcscCode,
                 Stock = stock,
                 Price = price,
+                DatasheetUrl = string.IsNullOrWhiteSpace(datasheetUrl) ? null : datasheetUrl,
+                PhotoUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl,
                 LifecycleStatus = stock > 0 ? "Active (现货)" : "无库存"
             };
+
+            if (item.TryGetProperty("attributes", out var attrs) && attrs.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var attr in attrs.EnumerateArray())
+                {
+                    var aName = attr.TryGetProperty("attribute_name_en", out var ane) ? ane.GetString() : null;
+                    var aVal = attr.TryGetProperty("attribute_value_name", out var ave) ? ave.GetString() : null;
+                    if (!string.IsNullOrWhiteSpace(aName) && !string.IsNullOrWhiteSpace(aVal) && aVal != "-")
+                    {
+                        result.Parameters[aName] = aVal;
+                    }
+                }
+            }
 
             results.Add(result);
         }
@@ -87,10 +124,11 @@ public sealed class EasyedaApiService
     {
         try
         {
-            var results = await SearchAsync(mpn, limit: 3);
+            var results = await SearchAsync(mpn, limit: 5);
             if (results.Count == 0) return null;
 
             var match = results.FirstOrDefault(r => string.Equals(r.ManufacturerProductNumber, mpn, StringComparison.OrdinalIgnoreCase))
+                     ?? results.FirstOrDefault(r => string.Equals(r.LcscPartNumber, mpn, StringComparison.OrdinalIgnoreCase))
                      ?? results[0];
 
             if (!string.IsNullOrWhiteSpace(match.LcscPartNumber))

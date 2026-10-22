@@ -1,7 +1,7 @@
 <Window x:Class="CadenceCisLibraryManager.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OrCAD CIS 智能库与研发物料管控系统" Height="900" Width="1240" MinHeight="760" MinWidth="1040"
+        Title="OrCAD CIS 智能库与研发物料管控系统" Height="920" Width="1280" MinHeight="780" MinWidth="1060"
         Loaded="Window_Loaded">
     <Grid Margin="12">
         <Grid.RowDefinitions>
@@ -22,128 +22,240 @@
 
         <!-- Main TabControl -->
         <TabControl Grid.Row="1" x:Name="MainTabControl">
-            <!-- Tab 1: CIS Library Manager -->
-            <TabItem Header=" 🏷️ CIS 零件库建库工作台 ">
+            <!-- ========================================================= -->
+            <!-- Tab 1: 料号管理 (Part Number Management)                   -->
+            <!-- ========================================================= -->
+            <TabItem Header=" 🔖 料号管理 ">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="2*" MinHeight="220" />
+                        <RowDefinition Height="1.8*" MinHeight="170" />
+                        <RowDefinition Height="5" />
+                        <RowDefinition Height="3*" MinHeight="260" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Top Bar: Query & Global Part Operations -->
+                    <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="📋 查看全部料号" Height="28" Padding="12,0" Margin="0,0,10,0" FontWeight="SemiBold" Background="#EFF6FF" BorderBrush="#93C5FD" Click="ShowAllComponents_Click" ToolTip="从全库跨表汇总视图载入所有料号数据" />
+                                <TextBlock Text="跨表全局检索:" VerticalAlignment="Center" Margin="0,0,6,0" FontWeight="SemiBold" />
+                                <TextBox x:Name="ComponentSearchBox" Width="240" Height="28" VerticalContentAlignment="Center" Margin="0,0,8,0" KeyDown="ComponentSearchBox_KeyDown" ToolTip="输入公司料号(PN)、原厂型号(MPN)、阻容规格、厂商或描述" />
+                                <Button Content="查询" Width="65" Height="28" Click="ComponentSearch_Click" Background="#2563EB" Foreground="White" Margin="0,0,10,0" />
+                                <Button Content="📊 导出列表 (CSV)" Height="28" Padding="10,0" Click="ExportComponentsCsv_Click" ToolTip="将当前列表导出的 CSV 文件带 UTF-8 BOM，支持 Excel 双击直接打开" Margin="0,0,10,0" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="➕ 新增料号 (无图档先行建号)" Height="28" Padding="12,0" FontWeight="Bold" Background="#16A34A" Foreground="White" Click="NewComponent_Click" ToolTip="切换至新增料号模式，自动发号并允许在没有图档时先行建号入库" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Row 1: All Components Grid -->
+                    <GroupBox Grid.Row="1" Header="全库料号总览与跨表清单 (单击行载入下方表单，双击在【CIS图档维护】中定位)" Margin="0,0,0,4" Padding="6">
+                        <DataGrid x:Name="AllComponentsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                  SelectionMode="Single" SelectionChanged="AllComponentsGrid_SelectionChanged" MouseDoubleClick="AllComponentsGrid_MouseDoubleClick"
+                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="分类/所属表" Binding="{Binding Category}" Width="125" />
+                                <DataGridTextColumn Header="公司料号 (PN)" Binding="{Binding PartNumber}" Width="125" FontWeight="SemiBold" />
+                                <DataGridTextColumn Header="规格 / 值" Binding="{Binding Value}" Width="100" />
+                                <DataGridTextColumn Header="封装" Binding="{Binding Package}" Width="90" />
+                                <DataGridTextColumn Header="原厂型号 (MPN)" Binding="{Binding ManufacturerPartNumber}" Width="150" />
+                                <DataGridTextColumn Header="厂商" Binding="{Binding Manufacturer}" Width="100" />
+                                <DataGridTextColumn Header="规格书 (Datasheet)" Binding="{Binding Datasheet}" Width="130" />
+                                <DataGridTextColumn Header="渠道/渠道商" Binding="{Binding Distributor}" Width="100" />
+                                <DataGridTextColumn Header="图档状态" Binding="{Binding DrawingStatus}" Width="90" FontWeight="SemiBold" />
+                                <DataGridTextColumn Header="品名与描述" Binding="{Binding Description}" Width="*" />
+                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="100" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </GroupBox>
+
+                    <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" Background="#E2E8F0" />
+
+                    <!-- Row 3: Lower Section (Area A Form + Area B Online Search) -->
+                    <Grid Grid.Row="3" Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.1*" MinWidth="380" />
+                            <ColumnDefinition Width="5" />
+                            <ColumnDefinition Width="*" MinWidth="360" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Area A: Core Dynamic Form -->
+                        <GroupBox Grid.Column="0" Header="【区域 A】料号参数录入工作台 (Dynamic Spec Workstation)" Margin="0,0,4,0" Padding="8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!-- Table and Fast PN Header -->
+                                <Border Grid.Row="0" Background="#F1F5F9" CornerRadius="4" Padding="6" Margin="0,0,0,6">
+                                    <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="分类表:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
+                                        <ComboBox x:Name="TableComboBox" Width="145" Height="26" Margin="0,0,6,0" SelectionChanged="TableComboBox_SelectionChanged" />
+                                        <Button x:Name="LoadColumnsButton" Content="载入表单" Height="26" Padding="6,0" Margin="0,0,6,0" Click="LoadColumns_Click" />
+                                        <Button x:Name="GenerateNumberButton" Content="⚡ 自动发号" Height="26" Padding="6,0" Margin="0,0,6,0" Click="GenerateNumber_Click" FontWeight="SemiBold" />
+                                        <CheckBox x:Name="chkStandardPartMode" Content="标准件" VerticalAlignment="Center" Margin="0,0,4,0" Checked="chkStandardPartMode_Checked" Unchecked="chkStandardPartMode_Unchecked" ToolTip="复用 DISCRETE 符号与标准封装" />
+                                    </WrapPanel>
+                                </Border>
+
+                                <!-- Dynamic Form Controls -->
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="FormPanel" />
+                                </ScrollViewer>
+
+                                <!-- Action Buttons -->
+                                <Border Grid.Row="2" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0" Padding="0,6,0,0" Margin="0,4,0,0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" x:Name="FormEditingHint" Text="提示：图档字段可留空，先建号即可在样品库中入库管理" Foreground="#64748B" VerticalAlignment="Center" FontSize="11" />
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <Button Content="清空重置" Height="30" Padding="10,0" Margin="0,0,8,0" Click="ResetForm_Click" />
+                                            <Button x:Name="SaveComponentButton" Content="💾 保存料号至数据库" Height="30" Padding="14,0" FontWeight="Bold" Background="#2563EB" Foreground="White" Click="SaveComponent_Click" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </GroupBox>
+
+                        <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="#E2E8F0" />
+
+                        <!-- Area B: Online Search & Spec Enricher -->
+                        <GroupBox Grid.Column="2" Header="【区域 B】联网搜索与参数注入器 (3 模式搜索与文档下载)" Margin="4,0,0,0" Padding="8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <!-- Search Modes: 3-mode selection -->
+                                <WrapPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
+                                    <TextBlock Text="模式:" VerticalAlignment="Center" Margin="0,0,6,0" FontWeight="SemiBold" />
+                                    <RadioButton x:Name="rbSearchCombined" Content="🌐 联合搜索 (DigiKey+立创)" GroupName="SearchMode" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="SemiBold" ToolTip="同时检索两方供应链，自动聚合库存与立创编号" />
+                                    <RadioButton x:Name="rbSearchDigiKey" Content="🔍 仅 DigiKey" GroupName="SearchMode" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                    <RadioButton x:Name="rbSearchLcsc" Content="🛒 仅立创 / JLCPCB" GroupName="SearchMode" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                </WrapPanel>
+
+                                <!-- Search Input Bar -->
+                                <Grid Grid.Row="1" Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="关键字:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <TextBox Grid.Column="1" x:Name="OnlineSearchBox" Height="26" VerticalContentAlignment="Center" Margin="0,0,8,0" KeyDown="OnlineSearchBox_KeyDown" ToolTip="输入型号如 12402076E512A, LM358DR 或描述如 0402 10k" />
+                                    <Button Grid.Column="2" x:Name="OnlineSearchButton" Width="70" Height="26" Content="搜索" Click="OnlineSearchButton_Click" Background="#0284C7" Foreground="White" />
+                                </Grid>
+
+                                <!-- Results DataGrid -->
+                                <DataGrid Grid.Row="2" x:Name="SearchResultsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                          SelectionMode="Single" SelectionChanged="SearchResultsGrid_SelectionChanged" Margin="0,0,0,6" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="来源" Binding="{Binding Source}" Width="95" />
+                                        <DataGridTextColumn Header="原厂型号 (MPN)" Binding="{Binding ManufacturerProductNumber}" Width="130" />
+                                        <DataGridTextColumn Header="厂商" Binding="{Binding Manufacturer}" Width="95" />
+                                        <DataGridTextColumn Header="封装" Binding="{Binding Package}" Width="80" />
+                                        <DataGridTextColumn Header="状态" Binding="{Binding DisplayStatus}" Width="85" />
+                                        <DataGridTextColumn Header="库存" Binding="{Binding Stock}" Width="65" />
+                                        <DataGridTextColumn Header="参考价" Binding="{Binding Price}" Width="75" />
+                                        <DataGridTextColumn Header="立创编号" Binding="{Binding LcscPartNumber}" Width="80" />
+                                        <DataGridTextColumn Header="品名与描述" Binding="{Binding Description}" Width="*" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+
+                                <!-- Injection Controls & Datasheet Option -->
+                                <Grid Grid.Row="3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="SelectedResultSummary" Text="请在上方列表中选中条目以注入参数。" Foreground="#64748B" TextTrimming="CharacterEllipsis" FontSize="11" Margin="0,0,0,2" />
+                                        <CheckBox x:Name="chkAutoDownloadDatasheet" Content="📥 自动下载规格书 (Datasheet) 至 SMB 库并回写文档路径" IsChecked="True" FontSize="11" Foreground="#047857" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" x:Name="ApplyOnlineResultButton" Content="注入并填充至表单" IsEnabled="False" Height="28" Padding="12,0" FontWeight="SemiBold" Click="ApplyOnlineResultButton_Click" />
+                                </Grid>
+                            </Grid>
+                        </GroupBox>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- ========================================================= -->
+            <!-- Tab 2: CIS 图档维护 (CIS Drawing & Footprint Maintenance)  -->
+            <!-- ========================================================= -->
+            <TabItem Header=" 📐 CIS 图档维护 ">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" MinHeight="170" />
+                        <RowDefinition Height="1.4*" MinHeight="140" />
+                        <RowDefinition Height="5" />
+                        <RowDefinition Height="2*" MinHeight="220" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Top Bar: Table & PN tools -->
-                    <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,8">
-                        <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button x:Name="RefreshTablesButton" Width="85" Height="28" VerticalContentAlignment="Center" Margin="0,0,6,0" Click="RefreshTables_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Style="{StaticResource SymbolTextStyle}" Text="&#xE895;" />
-                                    <TextBlock Text="读取表" />
-                                </StackPanel>
-                            </Button>
-                            <TextBlock Text="数据库表:" VerticalAlignment="Center" Margin="0,0,4,0" FontWeight="SemiBold" />
-                            <ComboBox x:Name="TableComboBox" Width="200" Height="28" Margin="0,0,8,0" SelectionChanged="TableComboBox_SelectionChanged" />
-                            <Button x:Name="LoadColumnsButton" Width="85" Height="28" Margin="0,0,8,0" Click="LoadColumns_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Style="{StaticResource SymbolTextStyle}" Text="&#xE70F;" />
-                                    <TextBlock Text="载入表单" />
-                                </StackPanel>
-                            </Button>
-
-                            <CheckBox x:Name="chkStandardPartMode" Content="标准料模式 (复用 DISCRETE 符号与标准封装)" VerticalAlignment="Center" Margin="0,0,12,0" Checked="chkStandardPartMode_Checked" Unchecked="chkStandardPartMode_Unchecked" />
-
-                            <Button x:Name="GenerateNumberButton" Width="85" Height="28" Margin="0,0,12,0" Click="GenerateNumber_Click">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Style="{StaticResource SymbolTextStyle}" Text="&#xE8D2;" />
-                                    <TextBlock Text="发号" />
-                                </StackPanel>
-                            </Button>
-
-                            <TextBlock Text="查询PN:" VerticalAlignment="Center" Margin="0,0,4,0" />
-                            <TextBox x:Name="PartNumberSearchBox" Width="130" Height="28" Margin="0,0,6,0" />
-                            <Button x:Name="FindRecordButton" Width="60" Height="28" Content="查找" Click="FindRecord_Click" />
-                        </WrapPanel>
-                    </Border>
-
-                    <!-- Area A: Core Workstation & Form -->
-                    <GroupBox Grid.Row="1" Header="【区域 A】核心入库工作台 (Dynamic Form &amp; Database Workstation)" Margin="0,0,0,8" Padding="8">
+                    <!-- Top Filter Bar -->
+                    <Border Grid.Row="0" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,0,0,6">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="2*" />
-                                <ColumnDefinition Width="10" />
-                                <ColumnDefinition Width="320" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
-                            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
-                                <StackPanel x:Name="FormPanel" />
-                            </ScrollViewer>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="目标物料查找:" VerticalAlignment="Center" Margin="0,0,6,0" FontWeight="SemiBold" />
+                                <TextBox x:Name="DrawingSearchBox" Width="220" Height="26" VerticalContentAlignment="Center" Margin="0,0,6,0" KeyDown="DrawingSearchBox_KeyDown" ToolTip="输入料号、原厂型号或描述" />
+                                <Button Content="查询" Width="60" Height="26" Margin="0,0,8,0" Click="DrawingSearch_Click" />
+                                <Button Content="刷新物料" Height="26" Padding="8,0" Margin="0,0,12,0" Click="DrawingRefresh_Click" />
+                                <CheckBox x:Name="chkOnlyMissingDrawings" Content="仅显示待补图档物料" VerticalAlignment="Center" Checked="DrawingFilter_Changed" Unchecked="DrawingFilter_Changed" />
+                            </StackPanel>
 
-                            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
-                                <StackPanel>
-                                    <GroupBox x:Name="SymbolFilesGroupBox" Header="关联原理图符号" Padding="8" Margin="0,0,0,8" Visibility="Collapsed">
-                                        <StackPanel x:Name="SymbolFilesPanel" />
-                                    </GroupBox>
-
-                                    <GroupBox x:Name="FootprintFilesGroupBox" Header="关联 PCB 封装" Padding="8" Margin="0,0,0,8" Visibility="Collapsed">
-                                        <StackPanel x:Name="FootprintFilesPanel" />
-                                    </GroupBox>
-
-                                    <GroupBox x:Name="Model3DFilesGroupBox" Header="关联 3D 模型" Padding="8" Visibility="Collapsed">
-                                        <StackPanel x:Name="Model3DFilesPanel" />
-                                    </GroupBox>
-                                </StackPanel>
-                            </ScrollViewer>
+                            <Border Grid.Column="2" Background="#EFF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="4" Padding="10,4">
+                                <TextBlock x:Name="SelectedDrawingPartInfo" Text="当前选定物料: 未选定 (请在下方列表点击选中目标物料)" FontWeight="Bold" Foreground="#1D4ED8" VerticalAlignment="Center" />
+                            </Border>
                         </Grid>
+                    </Border>
+
+                    <!-- Row 1: Drawings Target Grid -->
+                    <GroupBox Grid.Row="1" Header="全库物料图档关联状态 (点击行选定需要补齐或维护图档的物料)" Margin="0,0,0,4" Padding="6">
+                        <DataGrid x:Name="DrawingsTargetGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                                  SelectionMode="Single" SelectionChanged="DrawingsTargetGrid_SelectionChanged"
+                                  GridLinesVisibility="Horizontal" HeadersVisibility="Column">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="分类" Binding="{Binding Category}" Width="120" />
+                                <DataGridTextColumn Header="物料号 (PN)" Binding="{Binding PartNumber}" Width="125" FontWeight="SemiBold" />
+                                <DataGridTextColumn Header="规格/值" Binding="{Binding Value}" Width="100" />
+                                <DataGridTextColumn Header="封装" Binding="{Binding Package}" Width="90" />
+                                <DataGridTextColumn Header="原厂型号 (MPN)" Binding="{Binding ManufacturerPartNumber}" Width="140" />
+                                <DataGridTextColumn Header="图档就绪状态" Binding="{Binding DrawingStatus}" Width="100" FontWeight="SemiBold" />
+                                <DataGridTextColumn Header="原理图符号 (Schematic_Part)" Binding="{Binding SchematicPart}" Width="160" />
+                                <DataGridTextColumn Header="PCB封装 (PCB_Footprint)" Binding="{Binding PcbFootprint}" Width="150" />
+                                <DataGridTextColumn Header="3D模型 (Model_3D)" Binding="{Binding Model3D}" Width="140" />
+                                <DataGridTextColumn Header="品名与描述" Binding="{Binding Description}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
                     </GroupBox>
 
-                    <!-- Area B: Online Search & Spec Enricher -->
-                    <GroupBox Grid.Row="2" Header="【区域 B】联网搜索与参数注入器 (Online Search &amp; Spec Enricher)" Margin="0,0,0,8" Padding="8">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="120" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
+                    <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch" Background="#E2E8F0" />
 
-                            <WrapPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,6">
-                                <TextBlock Text="数据源:" VerticalAlignment="Center" Margin="0,0,6,0" FontWeight="SemiBold" />
-                                <RadioButton x:Name="rbDigiKey" Content="DigiKey (权威参数/EOL审查)" IsChecked="True" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                <RadioButton x:Name="rbLcsc" Content="立创商城 / JLCPCB (国内现货/3D)" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                <CheckBox x:Name="chkAutoEnrichLcsc" Content="自动级联立创补充 (现货价与LCSC号)" IsChecked="True" VerticalAlignment="Center" Margin="0,0,16,0" />
-                                <TextBlock Text="关键字:" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                <TextBox x:Name="OnlineSearchBox" Width="260" Height="26" VerticalContentAlignment="Center" Margin="0,0,8,0" KeyDown="OnlineSearchBox_KeyDown" ToolTip="输入型号如 LM358DR 或描述如 0402 10k 1%" />
-                                <Button x:Name="OnlineSearchButton" Width="80" Height="26" Content="搜索" Click="OnlineSearchButton_Click" />
-                            </WrapPanel>
-
-                            <DataGrid Grid.Row="1" x:Name="SearchResultsGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
-                                      SelectionMode="Single" SelectionChanged="SearchResultsGrid_SelectionChanged" Margin="0,0,0,6" GridLinesVisibility="Horizontal" HeadersVisibility="Column">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="来源" Binding="{Binding Source}" Width="80" />
-                                    <DataGridTextColumn Header="原厂型号 (MPN)" Binding="{Binding ManufacturerProductNumber}" Width="150" />
-                                    <DataGridTextColumn Header="品牌/厂商" Binding="{Binding Manufacturer}" Width="110" />
-                                    <DataGridTextColumn Header="封装规格" Binding="{Binding Package}" Width="100" />
-                                    <DataGridTextColumn Header="生命周期 / 状态" Binding="{Binding DisplayStatus}" Width="120" />
-                                    <DataGridTextColumn Header="库存" Binding="{Binding Stock}" Width="80" />
-                                    <DataGridTextColumn Header="参考价格" Binding="{Binding Price}" Width="80" />
-                                    <DataGridTextColumn Header="立创编号" Binding="{Binding LcscPartNumber}" Width="90" />
-                                    <DataGridTextColumn Header="品名与电气描述" Binding="{Binding Description}" Width="*" />
-                                </DataGrid.Columns>
-                            </DataGrid>
-
-                            <Grid Grid.Row="2">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" x:Name="SelectedResultSummary" Text="请在上方列表中选中物料条目以注入参数。" Foreground="#64748B" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                <Button Grid.Column="1" x:Name="ApplyOnlineResultButton" Content="应用并填充至表单" IsEnabled="False" Height="26" Padding="12,0" Click="ApplyOnlineResultButton_Click" />
-                            </Grid>
-                        </Grid>
-                    </GroupBox>
-
-                    <!-- Area C: Asset Intake Zone -->
-                    <GroupBox Grid.Row="3" Header="【区域 C】文件上传与资产处理区 (Asset Intake Zone)" Margin="0,0,0,8" Padding="8">
+                    <!-- Row 3: Asset Intake Zone (Former Area C) -->
+                    <GroupBox Grid.Row="3" Header="【区域 C】文件上传与资产处理区 (Asset Intake Zone - 拖拽解析与分发入库)" Margin="0,4,0,6" Padding="8">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -220,20 +332,22 @@
                         </Grid>
                     </GroupBox>
 
-                    <!-- Tab 1 Bottom: Submit Bar (Dedicated to CIS Library) -->
+                    <!-- Row 4: Submit Bar for Drawings -->
                     <Grid Grid.Row="4" Margin="0,4,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="建库完成核对无误后，点击右侧提交入库将参数写入 MariaDB 并分发文件至 SMB 库。" Foreground="#64748B" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" x:Name="SubmitButton" Content="提交建库至 CIS" Width="140" Height="34" FontWeight="SemiBold" Background="#2563EB" Foreground="White" Click="Submit_Click" />
+                        <TextBlock Grid.Column="0" Text="在上方选定物料并上传完封装/符号/3D模型后，点击右侧提交将图档拷贝至 SMB 共享库并更新物料记录。" Foreground="#64748B" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" x:Name="SubmitDrawingsButton" Content="💾 提交并更新物料图档至 CIS &amp; SMB 库" Width="260" Height="34" FontWeight="SemiBold" Background="#2563EB" Foreground="White" Click="SubmitDrawings_Click" />
                     </Grid>
                 </Grid>
             </TabItem>
 
-            <!-- Tab 2: Sample Inventory Management -->
-            <TabItem Header=" 📦 研发样品库存管控 ">
+            <!-- ========================================================= -->
+            <!-- Tab 3: 样品库存管理 (Sample Inventory Management)          -->
+            <!-- ========================================================= -->
+            <TabItem Header=" 📦 样品库存管理 ">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -242,7 +356,7 @@
                         <RowDefinition Height="2*" MinHeight="170" />
                     </Grid.RowDefinitions>
 
-                    <!-- Row 0: Top Mode & Filter Bar (Dual Intent: Browse All vs Search Part) -->
+                    <!-- Row 0: Top Mode & Filter Bar -->
                     <Border Grid.Row="0" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,0,0,8">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -251,7 +365,6 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
 
-                            <!-- Left: Search with clear distinction -->
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                                 <Button Content="📋 查看全部样品库存" Height="28" Padding="12,0" Margin="0,0,16,0" Click="SampleShowAll_Click" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#94A3B8" ToolTip="点击载入或刷新全部样品的库存总览清单" />
                                 <TextBlock Text="按料号/型号精确检索:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#475569" />
@@ -259,7 +372,6 @@
                                 <Button Content="查询" Width="70" Height="28" Click="SampleSearch_Click" Background="#2563EB" Foreground="White" />
                             </StackPanel>
 
-                            <!-- Right: Operations hint badge -->
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="💡 提示：在下方列表点击选中目标物料，并在操作栏直接执行出入库" Foreground="#64748B" VerticalAlignment="Center" FontStyle="Italic" />
                             </StackPanel>
@@ -286,7 +398,7 @@
                         </DataGrid>
                     </GroupBox>
 
-                    <!-- Row 2: Operation Bar with Explicit Radio Action Selection (No popup dialogs!) -->
+                    <!-- Row 2: Operation Bar with Explicit Radio Action Selection -->
                     <GroupBox Grid.Row="2" Header="样品出入库变动操作" Margin="0,0,0,8" Padding="10">
                         <Grid>
                             <Grid.RowDefinitions>
@@ -294,7 +406,6 @@
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <!-- Action Type Radio Selection: Direct and Intuitive -->
                             <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10" VerticalAlignment="Center">
                                 <TextBlock Text="当前选定物料:" FontWeight="Bold" Margin="0,0,6,0" VerticalAlignment="Center" />
                                 <Border Background="#EFF6FF" BorderBrush="#BFDBFE" BorderThickness="1" CornerRadius="4" Padding="8,2" Margin="0,0,20,0">
@@ -309,7 +420,6 @@
                                 <RadioButton x:Name="rbOpScrap" Content="🗑️ 损坏报废" GroupName="SampleOp" VerticalAlignment="Center" Margin="0,0,12,0" Foreground="#DC2626" Checked="SampleOperationType_Changed" />
                             </StackPanel>
 
-                            <!-- Operational Parameters & Execution Button -->
                             <Grid Grid.Row="1">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />

@@ -66,8 +66,8 @@ CREATE TABLE `02_common_ic` (
     `Value` VARCHAR(64) NOT NULL COMMENT '型号规格 (如 LM358, MAX485, 74LVC1G08)',
     `Package` VARCHAR(64) NOT NULL,
     `Description` VARCHAR(255) DEFAULT NULL,
-    `Schematic_Part` VARCHAR(128) NOT NULL,
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `Schematic_Part` VARCHAR(128) DEFAULT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'U',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -96,8 +96,8 @@ CREATE TABLE `03_ddr` (
     `Value` VARCHAR(64) NOT NULL COMMENT '容量与规格 (如 4GB LPDDR4X-4266, 8Gb DDR4)',
     `Package` VARCHAR(64) NOT NULL COMMENT '封装 (如 FBGA-200, BGA-96)',
     `Description` VARCHAR(255) DEFAULT NULL,
-    `Schematic_Part` VARCHAR(128) NOT NULL,
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `Schematic_Part` VARCHAR(128) DEFAULT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'U',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -127,7 +127,7 @@ CREATE TABLE `04_misc` (
     `Package` VARCHAR(64) NOT NULL,
     `Description` VARCHAR(255) DEFAULT NULL,
     `Schematic_Part` VARCHAR(128) NOT NULL DEFAULT 'DISCRETE\\XTAL',
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'Y' COMMENT '原理图位号前缀 (如 Y, SW, F, BZ)',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -156,8 +156,8 @@ CREATE TABLE `05_flash_rom` (
     `Value` VARCHAR(64) NOT NULL COMMENT '容量规格 (如 128M-bit, 32GB, 256K-bit)',
     `Package` VARCHAR(64) NOT NULL COMMENT '封装 (如 SOP-8, WSON-8, BGA-153)',
     `Description` VARCHAR(255) DEFAULT NULL,
-    `Schematic_Part` VARCHAR(128) NOT NULL,
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `Schematic_Part` VARCHAR(128) DEFAULT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'U',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -186,8 +186,8 @@ CREATE TABLE `06_power_ic` (
     `Value` VARCHAR(64) NOT NULL COMMENT '规格概要 (如 3.3V/1A, Adj/3A, 5V/2A)',
     `Package` VARCHAR(64) NOT NULL,
     `Description` VARCHAR(255) DEFAULT NULL,
-    `Schematic_Part` VARCHAR(128) NOT NULL,
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `Schematic_Part` VARCHAR(128) DEFAULT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'U',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -217,7 +217,7 @@ CREATE TABLE `07_transistor_diode` (
     `Package` VARCHAR(64) NOT NULL,
     `Description` VARCHAR(255) DEFAULT NULL,
     `Schematic_Part` VARCHAR(128) NOT NULL DEFAULT 'DISCRETE\\DIODE',
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'Q' COMMENT '位号 (Q, D, TVS, LED)',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -275,7 +275,7 @@ CREATE TABLE `09_inductor` (
     `Package` VARCHAR(64) NOT NULL COMMENT '封装代码 (如 0402, 0603, 0805, 4040)',
     `Description` VARCHAR(255) DEFAULT NULL,
     `Schematic_Part` VARCHAR(128) NOT NULL DEFAULT 'DISCRETE\\IND',
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'L',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -305,7 +305,7 @@ CREATE TABLE `10_resistor` (
     `Package` VARCHAR(64) NOT NULL COMMENT '封装 (如 0402, 0603, 0805, 1206)',
     `Description` VARCHAR(255) DEFAULT NULL,
     `Schematic_Part` VARCHAR(128) NOT NULL DEFAULT 'DISCRETE\\RES',
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'R',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -336,7 +336,7 @@ CREATE TABLE `11_capacitor` (
     `Package` VARCHAR(64) NOT NULL COMMENT '封装代码 (如 0201, 0402, 0603, 0805, 3216)',
     `Description` VARCHAR(255) DEFAULT NULL,
     `Schematic_Part` VARCHAR(128) NOT NULL DEFAULT 'DISCRETE\\CAP',
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'C',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -366,8 +366,8 @@ CREATE TABLE `12_connector` (
     `Value` VARCHAR(64) NOT NULL COMMENT '规格简述 (如 16-Pin Type-C, 1x4P 2.54mm)',
     `Package` VARCHAR(64) NOT NULL,
     `Description` VARCHAR(255) DEFAULT NULL,
-    `Schematic_Part` VARCHAR(128) NOT NULL,
-    `PCB_Footprint` VARCHAR(128) NOT NULL,
+    `Schematic_Part` VARCHAR(128) DEFAULT NULL,
+    `PCB_Footprint` VARCHAR(128) DEFAULT NULL,
     `Model_3D` VARCHAR(128) DEFAULT NULL,
     `Part_Reference` VARCHAR(16) NOT NULL DEFAULT 'J',
     `Manufacturer` VARCHAR(128) DEFAULT NULL,
@@ -445,31 +445,31 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- 全局汇总检索视图 (聚合 01~13 表)
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW `v_all_components` AS
-SELECT '01 CPU/GPU/MCU/SOC' AS `Category`, `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `01_cpu_mcu_soc`
+SELECT '01 CPU/GPU/MCU/SOC' AS `Category`, `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `01_cpu_mcu_soc`
 UNION ALL
-SELECT '02 Common IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `02_common_ic`
+SELECT '02 Common IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `02_common_ic`
 UNION ALL
-SELECT '03 DDR', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `03_ddr`
+SELECT '03 DDR', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `03_ddr`
 UNION ALL
-SELECT '04 Misc..', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `04_misc`
+SELECT '04 Misc..', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `04_misc`
 UNION ALL
-SELECT '05 Flash/ROM', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `05_flash_rom`
+SELECT '05 Flash/ROM', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `05_flash_rom`
 UNION ALL
-SELECT '06 Power IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `06_power_ic`
+SELECT '06 Power IC', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `06_power_ic`
 UNION ALL
-SELECT '07 Transistor/Diode', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `07_transistor_diode`
+SELECT '07 Transistor/Diode', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `07_transistor_diode`
 UNION ALL
-SELECT '08 PCB', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `08_pcb`
+SELECT '08 PCB', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `08_pcb`
 UNION ALL
-SELECT '09 Inductor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `09_inductor`
+SELECT '09 Inductor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `09_inductor`
 UNION ALL
-SELECT '10 Resistor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `10_resistor`
+SELECT '10 Resistor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `10_resistor`
 UNION ALL
-SELECT '11 Capacitor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `11_capacitor`
+SELECT '11 Capacitor', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `11_capacitor`
 UNION ALL
-SELECT '12 Connector', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `12_connector`
+SELECT '12 Connector', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `12_connector`
 UNION ALL
-SELECT '13 结构件', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `13_mechanical`;
+SELECT '13 结构件', `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` FROM `13_mechanical`;
 
 
 -- ==============================================================================

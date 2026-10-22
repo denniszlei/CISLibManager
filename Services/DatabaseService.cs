@@ -503,5 +503,191 @@ public sealed class DatabaseService
     {
         return "`" + identifier.Replace("`", "``") + "`";
     }
-}
 
+    public async Task<List<ComponentItem>> QueryAllComponentsAsync(AppSettings settings, string? keyword = null)
+    {
+        var results = new List<ComponentItem>();
+        await using var connection = await OpenConnectionAsync(settings);
+
+        var sql = @"
+            SELECT `Category`, `Part_Number`, `Part_Type`, `Value`, `Package`, `Description`, 
+                   `Schematic_Part`, `PCB_Footprint`, `Model_3D`, `Manufacturer`, `Manufacturer_Part_Number`, 
+                   `Datasheet`, `Lifecycle_Status`, `LCSC_Part_Number`, `Distributor`, `Note` 
+            FROM `v_all_components`
+        ";
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            sql += @" WHERE `Part_Number` LIKE @kw OR `Manufacturer_Part_Number` LIKE @kw 
+                      OR `Description` LIKE @kw OR `Value` LIKE @kw OR `Manufacturer` LIKE @kw 
+                      OR `Package` LIKE @kw OR `Distributor` LIKE @kw OR `Note` LIKE @kw";
+        }
+        sql += " ORDER BY `Part_Number` ASC";
+
+        try
+        {
+            await using var cmd = new MySqlCommand(sql, connection);
+            if (!string.IsNullOrWhiteSpace(keyword))
+            {
+                cmd.Parameters.AddWithValue("@kw", $"%{keyword.Trim()}%");
+            }
+
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var cat = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+                var pn = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+                var item = new ComponentItem
+                {
+                    Category = cat,
+                    PartNumber = pn,
+                    PartType = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    Value = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    Package = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    Description = reader.IsDBNull(5) ? null : reader.GetString(5),
+                    SchematicPart = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    PcbFootprint = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    Model3D = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    Manufacturer = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    ManufacturerPartNumber = reader.IsDBNull(10) ? null : reader.GetString(10),
+                    Datasheet = reader.IsDBNull(11) ? null : reader.GetString(11),
+                    LifecycleStatus = reader.IsDBNull(12) ? "Active" : reader.GetString(12),
+                    LcscPartNumber = reader.IsDBNull(13) ? null : reader.GetString(13),
+                    Distributor = reader.IsDBNull(14) ? null : reader.GetString(14),
+                    Note = reader.IsDBNull(15) ? null : reader.GetString(15)
+                };
+
+                // Infer TableName from PartNumber or Category
+                item.TableName = InferTableName(settings, pn, cat);
+                results.Add(item);
+            }
+        }
+        catch (MySqlException)
+        {
+            // If v_all_components query fails (e.g. view outdated or missing Datasheet column), fallback query without Datasheet or recreate view
+            return await QueryAllComponentsFallbackAsync(settings, connection, keyword);
+        }
+
+        return results;
+    }
+
+    private static string InferTableName(AppSettings settings, string partNumber, string category)
+    {
+        foreach (var (tbl, pfx) in settings.TablePartNumberPrefixes)
+        {
+            if (!string.IsNullOrWhiteSpace(pfx) && partNumber.StartsWith(pfx, StringComparison.OrdinalIgnoreCase))
+            {
+                return tbl;
+            }
+        }
+
+        var prefixFromCat = category.Split(' ').FirstOrDefault()?.Trim();
+        if (!string.IsNullOrWhiteSpace(prefixFromCat))
+        {
+            foreach (var tbl in settings.TablePartNumberPrefixes.Keys)
+            {
+                if (tbl.StartsWith(prefixFromCat, StringComparison.OrdinalIgnoreCase))
+                {
+                    return tbl;
+                }
+            }
+        }
+
+        return "10_resistor";
+    }
+
+    private async Task<List<ComponentItem>> QueryAllComponentsFallbackAsync(AppSettings settings, MySqlConnection connection, string? keyword)
+    {
+        var results = new List<ComponentItem>();
+        var tables = await GetTablesAsync(settings);
+        foreach (var tbl in tables.Where(t => !t.StartsWith("sample_", StringComparison.OrdinalIgnoreCase) && !t.StartsWith("v_", StringComparison.OrdinalIgnoreCase)))
+        {
+            try
+            {
+                var sql = $"SELECT * FROM {EscapeIdentifier(tbl)}";
+                if (!string.IsNullOrWhiteSpace(keyword))
+                {
+                    sql += " WHERE `Part_Number` LIKE @kw OR `Description` LIKE @kw";
+                }
+                sql += " LIMIT 200";
+
+                await using var cmd = new MySqlCommand(sql, connection);
+                if (!string.IsNullOrWhiteSpace(keyword))
+                {
+                    cmd.Parameters.AddWithValue("@kw", $"%{keyword.Trim()}%");
+                }
+
+                await using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var item = new ComponentItem
+                    {
+                        Category = tbl,
+                        TableName = tbl,
+                        PartNumber = GetSafeString(reader, "Part_Number"),
+                        PartType = GetSafeString(reader, "Part_Type"),
+                        Value = GetSafeString(reader, "Value"),
+                        Package = GetSafeString(reader, "Package"),
+                        Description = GetSafeString(reader, "Description"),
+                        SchematicPart = GetSafeString(reader, "Schematic_Part"),
+                        PcbFootprint = GetSafeString(reader, "PCB_Footprint"),
+                        Model3D = GetSafeString(reader, "Model_3D"),
+                        Manufacturer = GetSafeString(reader, "Manufacturer"),
+                        ManufacturerPartNumber = GetSafeString(reader, "Manufacturer_Part_Number"),
+                        Datasheet = GetSafeString(reader, "Datasheet"),
+                        LifecycleStatus = GetSafeString(reader, "Lifecycle_Status") ?? "Active",
+                        LcscPartNumber = GetSafeString(reader, "LCSC_Part_Number"),
+                        Distributor = GetSafeString(reader, "Distributor"),
+                        Note = GetSafeString(reader, "Note")
+                    };
+                    results.Add(item);
+                }
+            }
+            catch
+            {
+                // Continue other tables
+            }
+        }
+        return results;
+    }
+
+    private static string? GetSafeString(MySqlDataReader reader, string colName)
+    {
+        try
+        {
+            var ord = reader.GetOrdinal(colName);
+            return reader.IsDBNull(ord) ? null : reader.GetString(ord);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task UpdateComponentDrawingsAsync(AppSettings settings, string tableName, string partNumber, string? schematicPart, string? pcbFootprint, string? model3D)
+    {
+        await using var connection = await OpenConnectionAsync(settings);
+        var cols = await GetColumnsAsync(settings, tableName);
+        var symCol = FindSymbolColumn(cols, settings) ?? "Schematic_Part";
+        var footCol = FindFootprintColumn(cols, settings) ?? "PCB_Footprint";
+        var m3dCol = FindModel3DColumn(cols, settings) ?? "Model_3D";
+        var pnCol = FindPartNumberColumn(cols, settings) ?? "Part_Number";
+
+        var setClauses = new List<string>();
+        if (!string.IsNullOrWhiteSpace(schematicPart)) setClauses.Add($"{EscapeIdentifier(symCol)} = @sym");
+        if (!string.IsNullOrWhiteSpace(pcbFootprint)) setClauses.Add($"{EscapeIdentifier(footCol)} = @foot");
+        if (!string.IsNullOrWhiteSpace(model3D)) setClauses.Add($"{EscapeIdentifier(m3dCol)} = @m3d");
+
+        if (setClauses.Count == 0) return;
+
+        var sql = $"UPDATE {EscapeIdentifier(tableName)} SET {string.Join(", ", setClauses)} WHERE {EscapeIdentifier(pnCol)} = @pn";
+        await using var cmd = new MySqlCommand(sql, connection);
+        if (!string.IsNullOrWhiteSpace(schematicPart)) cmd.Parameters.AddWithValue("@sym", schematicPart);
+        if (!string.IsNullOrWhiteSpace(pcbFootprint)) cmd.Parameters.AddWithValue("@foot", pcbFootprint);
+        if (!string.IsNullOrWhiteSpace(model3D)) cmd.Parameters.AddWithValue("@m3d", model3D);
+        cmd.Parameters.AddWithValue("@pn", partNumber);
+
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+}

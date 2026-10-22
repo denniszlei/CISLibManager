@@ -1,4 +1,4 @@
-﻿namespace CadenceCisLibraryManager.Models;
+namespace CadenceCisLibraryManager.Models;
 
 public enum FileColumnKind
 {
@@ -6,5 +6,6 @@ public enum FileColumnKind
     Footprint,
     Symbol,
     Model3D,
-    Pin
+    Pin,
+    Datasheet
 }

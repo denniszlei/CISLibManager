@@ -73,6 +73,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="封装库" VerticalAlignment="Center" Margin="0,0,8,8" />
@@ -95,7 +96,12 @@
                         <Button Grid.Row="3" Grid.Column="2" Width="36" Margin="0,0,0,8" Click="BrowsePinPath_Click" ToolTip="浏览">
                             <TextBlock Style="{StaticResource SymbolTextStyle}" Text="&#xE712;" Margin="0" HorizontalAlignment="Center" />
                         </Button>
-                        <CheckBox Grid.Row="4" Grid.Column="1" x:Name="StoreFileNameCheckBox" Content="数据库仅保存文件名 (相对路径，严禁盘符硬编码)" IsChecked="True" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Datasheet 规格书库" VerticalAlignment="Center" Margin="0,0,8,8" />
+                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="DatasheetPathBox" Margin="0,0,8,8" ToolTip="SMB共享文档库或本地目录，如 \\192.168.1.100\Cadence_Lib\datasheets" />
+                        <Button Grid.Row="4" Grid.Column="2" Width="36" Margin="0,0,0,8" Click="BrowseDatasheetPath_Click" ToolTip="浏览">
+                            <TextBlock Style="{StaticResource SymbolTextStyle}" Text="&#xE712;" Margin="0" HorizontalAlignment="Center" />
+                        </Button>
+                        <CheckBox Grid.Row="5" Grid.Column="1" x:Name="StoreFileNameCheckBox" Content="数据库仅保存文件名 (相对路径，严禁盘符硬编码)" IsChecked="True" />
                     </Grid>
                 </GroupBox>
 
@@ -110,6 +116,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Part Number 字段" VerticalAlignment="Center" Margin="0,0,8,8" />
                         <TextBox Grid.Row="0" Grid.Column="1" x:Name="PartNumberColumnsBox" Margin="0,0,0,8" ToolTip="多个字段名用逗号分隔" />
@@ -117,8 +124,10 @@
                         <TextBox Grid.Row="1" Grid.Column="1" x:Name="FootprintColumnsBox" Margin="0,0,0,8" ToolTip="多个字段名用逗号分隔" />
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="符号字段" VerticalAlignment="Center" Margin="0,0,8,8" />
                         <TextBox Grid.Row="2" Grid.Column="1" x:Name="SymbolColumnsBox" Margin="0,0,0,8" ToolTip="多个字段名用逗号分隔" />
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="3D 字段" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="Model3DColumnsBox" ToolTip="多个字段名用逗号分隔" />
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="3D 字段" VerticalAlignment="Center" Margin="0,0,8,8" />
+                        <TextBox Grid.Row="3" Grid.Column="1" x:Name="Model3DColumnsBox" Margin="0,0,0,8" ToolTip="多个字段名用逗号分隔" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Datasheet 字段" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBox Grid.Row="4" Grid.Column="1" x:Name="DatasheetColumnsBox" ToolTip="多个字段名用逗号分隔" />
                     </Grid>
                 </GroupBox>
 
