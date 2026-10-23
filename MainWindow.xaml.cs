@@ -22,6 +22,9 @@ public partial class MainWindow : Window
     private readonly DigiKeyService _digiKeyService = new();
     private readonly EasyedaApiService _easyedaApiService = new();
     private readonly PartNumberGeneratorService _partNumberGeneratorService = new();
+    private readonly LibraryCacheService _libraryCacheService = new();
+    private readonly Dictionary<string, TextBlock> _footprintStatusBadges = [];
+    private readonly Dictionary<string, TextBlock> _model3dStatusBadges = [];
 
     private readonly Dictionary<string, Control> _inputs = [];
     private readonly Dictionary<string, ComboBox> _symbolLibraryInputs = [];
@@ -75,6 +78,10 @@ public partial class MainWindow : Window
 
         _ = LoadAllComponentsAsync();
         _ = LoadDrawingsTargetListAsync();
+        _ = Task.Run(async () =>
+        {
+            await _libraryCacheService.RefreshAsync(_settings);
+        });
     }
 
     private static string GetWindowTitleWithVersion()
@@ -96,6 +103,7 @@ public partial class MainWindow : Window
             await _settingsService.SaveAsync(_settings);
             LoadTargetSymbolLibraries();
             InitSampleLocations();
+            _ = _libraryCacheService.RefreshAsync(_settings);
             SetStatus("设置已保存并生效。");
         }
     }
@@ -770,6 +778,7 @@ public partial class MainWindow : Window
 
             await LoadDrawingsTargetListAsync();
             await LoadAllComponentsAsync();
+            _ = _libraryCacheService.RefreshAsync(_settings);
             ClearSelectedFiles();
         }
         catch (OperationCanceledException)
@@ -1068,7 +1077,8 @@ public partial class MainWindow : Window
         var footCol = _databaseService.FindFootprintColumn(_columns, _settings);
         if (footCol != null)
         {
-            var fpName = (!string.IsNullOrWhiteSpace(rule.FootprintPrefix) ? rule.FootprintPrefix : "") + cleanPkg;
+            // 智能在 SMB 物理库中探测并匹配最佳现有封装 (如库中有 r0402 或 R0402，自动对齐大小写并点亮绿灯)
+            var fpName = _libraryCacheService.FindBestFootprintMatch(rule.FootprintPrefix, cleanPkg);
             SetInputValue(footCol, fpName);
         }
 
@@ -1165,6 +1175,11 @@ public partial class MainWindow : Window
         FormPanel.Children.Clear();
         _inputs.Clear();
         _symbolLibraryInputs.Clear();
+        _footprintStatusBadges.Clear();
+        _model3dStatusBadges.Clear();
+
+        var footprintCol = _databaseService.FindFootprintColumn(_columns, _settings);
+        var model3dCol = _databaseService.FindModel3DColumn(_columns, _settings);
 
         foreach (var column in _columns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
         {
@@ -1180,41 +1195,203 @@ public partial class MainWindow : Window
             DockPanel.SetDock(label, Dock.Left);
             itemPanel.Children.Add(label);
 
-            var textBox = new TextBox
+            if (footprintCol != null && string.Equals(column.Name, footprintCol, StringComparison.OrdinalIgnoreCase))
             {
-                Height = 26,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = $"数据库字段: {column.Name} ({column.DataType})"
-            };
-            _inputs[column.Name] = textBox;
-            itemPanel.Children.Add(textBox);
+                // 封装专属输入组件：可编辑 ComboBox (自由输入不卡死流程 + 实时就绪指示徽标 + 现有库智能下拉联想)
+                var fpContainer = CreateFootprintInputControl(column);
+                itemPanel.Children.Add(fpContainer);
+            }
+            else if (model3dCol != null && string.Equals(column.Name, model3dCol, StringComparison.OrdinalIgnoreCase))
+            {
+                // 3D 模型专属输入组件：TextBox + 实时就绪指示徽标
+                var m3dContainer = CreateModel3DInputControl(column);
+                itemPanel.Children.Add(m3dContainer);
+            }
+            else
+            {
+                var textBox = new TextBox
+                {
+                    Height = 26,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    ToolTip = $"数据库字段: {column.Name} ({column.DataType})"
+                };
+                _inputs[column.Name] = textBox;
+                itemPanel.Children.Add(textBox);
+            }
 
             FormPanel.Children.Add(itemPanel);
         }
     }
 
+    private UIElement CreateFootprintInputControl(ColumnInfo column)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var cb = new ComboBox
+        {
+            Height = 26,
+            IsEditable = true,
+            IsTextSearchEnabled = false,
+            ToolTip = $"Allegro PCB 封装字段 (输入关键词可联想 SMB 库中现有封装，未建档亦可先行保存)\n数据库字段: {column.Name}"
+        };
+
+        cb.ItemsSource = _libraryCacheService.Footprints;
+
+        var statusBadge = new TextBlock
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Text = "⚪ 留空",
+            Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
+        };
+        Grid.SetColumn(statusBadge, 1);
+        _footprintStatusBadges[column.Name] = statusBadge;
+
+        cb.SelectionChanged += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(new Action(() => UpdateFootprintStatus(column.Name, cb.Text)));
+        };
+
+        cb.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new TextChangedEventHandler((_, _) =>
+        {
+            UpdateFootprintStatus(column.Name, cb.Text);
+        }));
+
+        cb.DropDownOpened += (_, _) =>
+        {
+            var curText = cb.Text.Trim();
+            cb.ItemsSource = _libraryCacheService.SearchFootprints(curText, 60);
+        };
+
+        grid.Children.Add(cb);
+        grid.Children.Add(statusBadge);
+
+        _inputs[column.Name] = cb;
+        return grid;
+    }
+
+    private void UpdateFootprintStatus(string columnName, string? text)
+    {
+        if (!_footprintStatusBadges.TryGetValue(columnName, out var badge)) return;
+        var clean = text?.Trim();
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            badge.Text = "⚪ 留空";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
+            badge.ToolTip = "未指定封装，允许先行建号，后续补齐";
+        }
+        else if (_libraryCacheService.IsFootprintExists(clean))
+        {
+            badge.Text = "🟢 已就绪";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(22, 163, 74));
+            badge.ToolTip = $"SMB 共享物理库中已就绪 ({clean}.dra / .psm)";
+        }
+        else
+        {
+            badge.Text = "🟡 待补图档";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(217, 119, 6));
+            badge.ToolTip = $"物理库中暂无此文件 ({clean})，保存后可在【CIS图档维护】中上传补齐";
+        }
+    }
+
+    private UIElement CreateModel3DInputControl(ColumnInfo column)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var tb = new TextBox
+        {
+            Height = 26,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            ToolTip = $"3D STEP 模型文件名 (如 R0402.step)\n数据库字段: {column.Name}"
+        };
+
+        var statusBadge = new TextBlock
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Text = "⚪ 留空",
+            Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
+        };
+        Grid.SetColumn(statusBadge, 1);
+        _model3dStatusBadges[column.Name] = statusBadge;
+
+        tb.TextChanged += (_, _) => UpdateModel3DStatus(column.Name, tb.Text);
+
+        grid.Children.Add(tb);
+        grid.Children.Add(statusBadge);
+
+        _inputs[column.Name] = tb;
+        return grid;
+    }
+
+    private void UpdateModel3DStatus(string columnName, string? text)
+    {
+        if (!_model3dStatusBadges.TryGetValue(columnName, out var badge)) return;
+        var clean = text?.Trim();
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            badge.Text = "⚪ 留空";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
+            badge.ToolTip = "未指定 3D 模型";
+        }
+        else if (_libraryCacheService.IsModel3DExists(clean))
+        {
+            badge.Text = "🟢 已就绪";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(22, 163, 74));
+            badge.ToolTip = $"SMB 共享 3D 库中已就绪 ({clean})";
+        }
+        else
+        {
+            badge.Text = "🟡 待补模型";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(217, 119, 6));
+            badge.ToolTip = $"3D 库中暂无此文件 ({clean})，保存后可在【CIS图档维护】中上传补齐";
+        }
+    }
+
     private string? GetInputValue(string columnName)
     {
-        if (_inputs.TryGetValue(columnName, out var control) && control is TextBox tb)
+        if (_inputs.TryGetValue(columnName, out var control))
         {
-            return tb.Text;
+            if (control is TextBox tb) return tb.Text;
+            if (control is ComboBox cb) return cb.Text;
         }
         return null;
     }
 
     private void SetInputValue(string columnName, string? value)
     {
-        if (_inputs.TryGetValue(columnName, out var control) && control is TextBox tb)
+        if (_inputs.TryGetValue(columnName, out var control))
         {
-            tb.Text = value ?? string.Empty;
+            if (control is TextBox tb)
+            {
+                tb.Text = value ?? string.Empty;
+                UpdateModel3DStatus(columnName, tb.Text);
+            }
+            else if (control is ComboBox cb)
+            {
+                cb.Text = value ?? string.Empty;
+                UpdateFootprintStatus(columnName, cb.Text);
+            }
         }
     }
 
     private void ClearDynamicForm()
     {
-        foreach (var control in _inputs.Values)
+        foreach (var (col, control) in _inputs)
         {
             if (control is TextBox tb) tb.Text = string.Empty;
+            else if (control is ComboBox cb) cb.Text = string.Empty;
+
+            UpdateFootprintStatus(col, string.Empty);
+            UpdateModel3DStatus(col, string.Empty);
         }
     }
 
@@ -1294,6 +1471,7 @@ public partial class MainWindow : Window
         foreach (var (col, ctl) in _inputs)
         {
             if (ctl is TextBox tb) dict[col] = tb.Text;
+            else if (ctl is ComboBox cb) dict[col] = cb.Text;
         }
         return dict;
     }
@@ -1491,4 +1669,41 @@ public partial class MainWindow : Window
     }
 
     #endregion
+
+    private async void RefreshLibraryCache_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetStatus("正在扫描 SMB 物理共享库中的 Allegro 封装与 3D 模型...");
+            var summary = await _libraryCacheService.RefreshAsync(_settings);
+            if (summary.ErrorMessage != null)
+            {
+                ShowError("扫描物理库失败: " + summary.ErrorMessage);
+            }
+            else
+            {
+                SetStatus($"物理库缓存刷新成功：已索引 {summary.FootprintCount} 个封装 (dra/psm)，{summary.Model3DCount} 个 3D模型，{summary.SymbolCount} 个符号库。");
+
+                // 刷新表单中所有封装 ComboBox 的候选列表与指示灯
+                var footCol = _databaseService.FindFootprintColumn(_columns, _settings);
+                if (footCol != null && _inputs.TryGetValue(footCol, out var ctrl) && ctrl is ComboBox cb)
+                {
+                    cb.ItemsSource = _libraryCacheService.Footprints;
+                    UpdateFootprintStatus(footCol, cb.Text);
+                }
+
+                var m3dCol = _databaseService.FindModel3DColumn(_columns, _settings);
+                if (m3dCol != null && _inputs.TryGetValue(m3dCol, out var mCtrl) && mCtrl is TextBox tb)
+                {
+                    UpdateModel3DStatus(m3dCol, tb.Text);
+                }
+
+                MessageBox.Show(this, $"SMB 物理库扫描完成！\n\n已成功建立物理资产索引：\n• Allegro 封装 (dra/psm): {summary.FootprintCount} 个\n• 3D STEP 模型 (step/stp): {summary.Model3DCount} 个\n• OrCAD 符号库 (olb): {summary.SymbolCount} 个\n耗时: {summary.Elapsed.TotalMilliseconds:F0} 毫秒", "物理库缓存更新", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError("刷新物理库缓存异常: " + ex.Message);
+        }
+    }
 }

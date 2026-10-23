@@ -104,7 +104,8 @@
                                         <ComboBox x:Name="TableComboBox" Width="145" Height="26" Margin="0,0,6,0" SelectionChanged="TableComboBox_SelectionChanged" />
                                         <Button x:Name="LoadColumnsButton" Content="载入表单" Height="26" Padding="6,0" Margin="0,0,6,0" Click="LoadColumns_Click" />
                                         <Button x:Name="GenerateNumberButton" Content="⚡ 自动发号" Height="26" Padding="6,0" Margin="0,0,6,0" Click="GenerateNumber_Click" FontWeight="SemiBold" />
-                                        <CheckBox x:Name="chkStandardPartMode" Content="标准件" VerticalAlignment="Center" Margin="0,0,4,0" Checked="chkStandardPartMode_Checked" Unchecked="chkStandardPartMode_Unchecked" ToolTip="复用 DISCRETE 符号与标准封装" />
+                                        <CheckBox x:Name="chkStandardPartMode" Content="标准件" VerticalAlignment="Center" Margin="0,0,6,0" Checked="chkStandardPartMode_Checked" Unchecked="chkStandardPartMode_Unchecked" ToolTip="复用 DISCRETE 符号与标准封装" />
+                                        <Button Content="🔄 刷新物理库缓存" Height="26" Padding="6,0" Margin="4,0,0,0" Click="RefreshLibraryCache_Click" ToolTip="重新扫描 SMB 共享库中现有的 Allegro 封装与 3D 模型" />
                                     </WrapPanel>
                                 </Border>
 
@@ -222,7 +223,8 @@
                                 <TextBlock Text="目标物料查找:" VerticalAlignment="Center" Margin="0,0,6,0" FontWeight="SemiBold" />
                                 <TextBox x:Name="DrawingSearchBox" Width="220" Height="26" VerticalContentAlignment="Center" Margin="0,0,6,0" KeyDown="DrawingSearchBox_KeyDown" ToolTip="输入料号、原厂型号或描述" />
                                 <Button Content="查询" Width="60" Height="26" Margin="0,0,8,0" Click="DrawingSearch_Click" />
-                                <Button Content="刷新物料" Height="26" Padding="8,0" Margin="0,0,12,0" Click="DrawingRefresh_Click" />
+                                <Button Content="刷新物料" Height="26" Padding="8,0" Margin="0,0,8,0" Click="DrawingRefresh_Click" />
+                                <Button Content="🔄 刷新物理库缓存" Height="26" Padding="8,0" Margin="0,0,12,0" Click="RefreshLibraryCache_Click" ToolTip="重新扫描 SMB 共享库中现有的 Allegro 封装与 3D 模型" />
                                 <CheckBox x:Name="chkOnlyMissingDrawings" Content="仅显示待补图档物料" VerticalAlignment="Center" Checked="DrawingFilter_Changed" Unchecked="DrawingFilter_Changed" />
                             </StackPanel>
 

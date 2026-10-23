@@ -13,6 +13,7 @@ public partial class SettingsWindow : Window
     private readonly DatabaseService _databaseService = new();
     private readonly DigiKeyService _digiKeyService = new();
     private readonly AppSettings _settings;
+    private readonly LibraryCacheService _libraryCacheService = new();
     private readonly ObservableCollection<TableRuleRow> _tableRuleRows = [];
     private readonly ObservableCollection<StandardPartRule> _standardPartRuleRows = [];
 
@@ -328,5 +329,43 @@ public partial class SettingsWindow : Window
         public string ValidationRegex { get; set; } = string.Empty;
 
         public string RegexErrorMessage { get; set; } = string.Empty;
+    }
+
+    private async void RefreshLibraryCache_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            RefreshCacheButton.IsEnabled = false;
+            CacheStatusText.Text = "正在扫描 SMB 物理库中现有的 Allegro 封装与模型文件...";
+
+            var tempSettings = new AppSettings
+            {
+                FootprintLibraryPath = FootprintPathBox.Text.Trim(),
+                SymbolLibraryPath = SymbolPathBox.Text.Trim(),
+                Model3DLibraryPath = Model3DPathBox.Text.Trim(),
+                PinLibraryPath = PinPathBox.Text.Trim(),
+                DatasheetLibraryPath = DatasheetPathBox.Text.Trim()
+            };
+
+            var summary = await _libraryCacheService.RefreshAsync(tempSettings);
+            if (summary.ErrorMessage != null)
+            {
+                CacheStatusText.Text = "扫描失败：" + summary.ErrorMessage;
+                MessageBox.Show(this, "扫描物理库出现异常：" + summary.ErrorMessage, "扫描失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            else
+            {
+                CacheStatusText.Text = $"扫描完成: 封装 {summary.FootprintCount} 个, 3D模型 {summary.Model3DCount} 个, 符号库 {summary.SymbolCount} 个 (耗时 {summary.Elapsed.TotalMilliseconds:F0}ms)";
+                MessageBox.Show(this, $"物理库扫描成功！\n\n已成功建立物理资产索引：\n• Allegro 封装 (dra/psm): {summary.FootprintCount} 个\n• 3D STEP 模型 (step/stp): {summary.Model3DCount} 个\n• OrCAD 符号库 (olb): {summary.SymbolCount} 个\n扫描耗时: {summary.Elapsed.TotalMilliseconds:F0} 毫秒", "物理库缓存更新", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            CacheStatusText.Text = "扫描失败：" + ex.Message;
+        }
+        finally
+        {
+            RefreshCacheButton.IsEnabled = true;
+        }
     }
 }

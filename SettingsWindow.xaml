@@ -74,6 +74,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="封装库" VerticalAlignment="Center" Margin="0,0,8,8" />
@@ -102,6 +103,12 @@
                             <TextBlock Style="{StaticResource SymbolTextStyle}" Text="&#xE712;" Margin="0" HorizontalAlignment="Center" />
                         </Button>
                         <CheckBox Grid.Row="5" Grid.Column="1" x:Name="StoreFileNameCheckBox" Content="数据库仅保存文件名 (相对路径，严禁盘符硬编码)" IsChecked="True" />
+                        <Border Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                            <DockPanel LastChildFill="True">
+                                <Button x:Name="RefreshCacheButton" Content="🔄 立即扫描/刷新物理库缓存" Padding="12,4" FontWeight="SemiBold" Click="RefreshLibraryCache_Click" DockPanel.Dock="Left" Margin="0,0,12,0" />
+                                <TextBlock x:Name="CacheStatusText" Text="提示：配置或修改路径后可点此建立本地物理资产索引 (dra/psm/step/olb)" VerticalAlignment="Center" Foreground="#64748B" FontSize="11" />
+                            </DockPanel>
+                        </Border>
                     </Grid>
                 </GroupBox>
 
