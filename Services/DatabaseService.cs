@@ -92,6 +92,14 @@ public sealed class DatabaseService
         return columns.Select(c => c.Name).FirstOrDefault(name => MatchesConfiguredColumn(name, settings.Model3DColumnNames));
     }
 
+    public string? FindDatasheetColumn(IEnumerable<ColumnInfo> columns, AppSettings settings)
+    {
+        return columns.Select(c => c.Name).FirstOrDefault(name =>
+            name.Contains("datasheet", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("规格书", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("url", StringComparison.OrdinalIgnoreCase));
+    }
+
     public async Task<IReadOnlyDictionary<string, string?>?> FindRowByPartNumberAsync(AppSettings settings, string tableName, string partNumberColumn, string partNumberValue, IReadOnlyList<ColumnInfo>? columns = null)
     {
         columns ??= await GetColumnsAsync(settings, tableName);
