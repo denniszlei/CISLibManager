@@ -246,42 +246,121 @@ public partial class MainWindow : Window
         var item = AllComponentsGrid.SelectedItem as ComponentItem;
         if (item == null) return;
 
-        // Sync table combo if needed
-        var targetTable = item.TableName;
-        if (!string.IsNullOrWhiteSpace(targetTable) &&
-            !string.Equals(GetSelectedTableName(), targetTable, StringComparison.OrdinalIgnoreCase))
+        await LoadComponentForEditingAsync(item);
+    }
+
+    private async Task LoadComponentForEditingAsync(ComponentItem item)
+    {
+        try
         {
-            var match = TableComboBox.Items.Cast<object>()
-                .FirstOrDefault(o => o?.ToString()?.Equals(targetTable, StringComparison.OrdinalIgnoreCase) == true ||
-                                     o?.ToString()?.Contains(targetTable, StringComparison.OrdinalIgnoreCase) == true);
-            if (match != null)
+            var targetTable = item.TableName;
+            if (!string.IsNullOrWhiteSpace(targetTable) &&
+                !string.Equals(GetSelectedTableName(), targetTable, StringComparison.OrdinalIgnoreCase))
             {
-                TableComboBox.SelectedItem = match;
+                var match = TableComboBox.Items.Cast<object>()
+                    .FirstOrDefault(o => o?.ToString()?.Equals(targetTable, StringComparison.OrdinalIgnoreCase) == true ||
+                                         o?.ToString()?.Contains(targetTable, StringComparison.OrdinalIgnoreCase) == true);
+                if (match != null)
+                {
+                    TableComboBox.SelectedItem = match;
+                }
             }
+
+            await EnsureColumnsLoadedAsync();
+
+            var partNumberCol = _databaseService.FindPartNumberColumn(_columns, _settings) ?? "Part_Number";
+            var rowData = await _databaseService.GetSingleRowByColumnAsync(_settings, targetTable, partNumberCol, item.PartNumber, _columns);
+
+            if (rowData != null && rowData.Count > 0)
+            {
+                foreach (var (colName, colVal) in rowData)
+                {
+                    SetInputValue(colName, colVal);
+                }
+            }
+            else
+            {
+                SetInputValue("Part_Number", item.PartNumber);
+                SetInputValue("Part_Type", item.PartType);
+                SetInputValue("Value", item.Value);
+                SetInputValue("Package", item.Package);
+                SetInputValue("Description", item.Description);
+                SetInputValue("Manufacturer", item.Manufacturer);
+                SetInputValue("Manufacturer_Part_Number", item.ManufacturerPartNumber);
+                SetInputValue("Datasheet", item.Datasheet);
+                SetInputValue("Distributor", item.Distributor);
+                SetInputValue("Note", item.Note);
+                SetInputValue("Lifecycle_Status", item.LifecycleStatus);
+                SetInputValue("LCSC_Part_Number", item.LcscPartNumber);
+                SetInputValue("Schematic_Part", item.SchematicPart);
+                SetInputValue("PCB_Footprint", item.PcbFootprint);
+                SetInputValue("Model_3D", item.Model3D);
+            }
+
+            _editingKeyColumn = partNumberCol;
+            _editingKeyValue = item.PartNumber;
+
+            FormEditingHint.Text = $"⚠️ 当前正在编辑已有料号: {item.PartNumber} ({item.Category})";
+            SaveComponentButton.Content = "💾 保存更新料号";
+            DeleteFormButton.Visibility = Visibility.Visible;
+            SwitchToNewModeButton.Visibility = Visibility.Visible;
         }
+        catch (Exception ex)
+        {
+            SetStatus($"载入料号详情失败: {ex.Message}");
+        }
+    }
 
-        await EnsureColumnsLoadedAsync();
+    private async void DeleteTopComponent_Click(object sender, RoutedEventArgs e)
+    {
+        var item = AllComponentsGrid.SelectedItem as ComponentItem;
+        if (item == null)
+        {
+            MessageBox.Show(this, "请先在上方料号列表中选中需要删除的料号记录！", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        await DeleteComponentInternalAsync(item.TableName, item.PartNumber);
+    }
 
-        // Populate fields
-        SetInputValue("Part_Number", item.PartNumber);
-        SetInputValue("Part_Type", item.PartType);
-        SetInputValue("Value", item.Value);
-        SetInputValue("Package", item.Package);
-        SetInputValue("Description", item.Description);
-        SetInputValue("Manufacturer", item.Manufacturer);
-        SetInputValue("Manufacturer_Part_Number", item.ManufacturerPartNumber);
-        SetInputValue("Datasheet", item.Datasheet);
-        SetInputValue("Distributor", item.Distributor);
-        SetInputValue("Note", item.Note);
-        SetInputValue("Lifecycle_Status", item.LifecycleStatus);
-        SetInputValue("LCSC_Part_Number", item.LcscPartNumber);
-        SetInputValue("Schematic_Part", item.SchematicPart);
-        SetInputValue("PCB_Footprint", item.PcbFootprint);
-        SetInputValue("Model_3D", item.Model3D);
+    private async void DeleteCurrentComponent_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_editingKeyValue))
+        {
+            MessageBox.Show(this, "当前未处于编辑料号模式，无法执行删除。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        var tableName = GetSelectedTableName();
+        await DeleteComponentInternalAsync(tableName, _editingKeyValue);
+    }
 
-        _editingKeyColumn = "Part_Number";
-        _editingKeyValue = item.PartNumber;
-        FormEditingHint.Text = $"当前正在编辑料号: {item.PartNumber} ({item.ManufacturerPartNumber}) | 分类: {item.Category}";
+    private async Task DeleteComponentInternalAsync(string tableName, string partNumber)
+    {
+        var confirm = MessageBox.Show(this,
+            $"【高危警告】确定要从数据库中彻底删除此料号记录吗？\r\n\r\n• 公司料号: {partNumber}\r\n• 所属分表: {tableName}\r\n\r\n此操作将永久删除该料号及其规格参数，不可撤销！",
+            "删除料号确认",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+            MessageBoxResult.No);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
+        try
+        {
+            var partNumberCol = _databaseService.FindPartNumberColumn(_columns, _settings) ?? "Part_Number";
+            await _databaseService.DeleteComponentAsync(_settings, tableName, partNumberCol, partNumber);
+            MessageBox.Show(this, $"料号 {partNumber} 已成功从分表 {tableName} 中删除！", "删除成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            SetStatus($"料号 {partNumber} 已从数据库彻底删除。");
+
+            await LoadAllComponentsAsync();
+            await LoadDrawingsTargetListAsync();
+            await LoadSampleInventoriesAsync();
+            ResetEditMode();
+            ClearDynamicForm();
+        }
+        catch (Exception ex)
+        {
+            ShowError("删除料号失败：" + ex.Message);
+        }
     }
 
     private void AllComponentsGrid_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -359,6 +438,7 @@ public partial class MainWindow : Window
 
             await LoadAllComponentsAsync();
             await LoadDrawingsTargetListAsync();
+            await LoadSampleInventoriesAsync();
             ResetEditMode();
         }
         catch (Exception ex)
@@ -1676,6 +1756,10 @@ public partial class MainWindow : Window
     {
         _editingKeyColumn = null;
         _editingKeyValue = null;
+        FormEditingHint.Text = "当前模式：新增物料入库（图档可留空，后续在CIS图档维护补齐）";
+        SaveComponentButton.Content = "💾 保存料号至数据库";
+        DeleteFormButton.Visibility = Visibility.Collapsed;
+        SwitchToNewModeButton.Visibility = Visibility.Collapsed;
     }
 
     private void ClearSelectedFiles()
@@ -1812,7 +1896,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            var list = await _databaseService.QuerySampleInventoriesAsync(_settings, keyword);
+            var includeZero = chkIncludeZeroStock?.IsChecked ?? true;
+            var list = await _databaseService.QuerySampleInventoriesAsync(_settings, keyword, includeZero);
             SampleInventoryGrid.ItemsSource = list;
             SetStatus($"已载入 {list.Count} 条样品库存记录。");
         }
@@ -1820,6 +1905,16 @@ public partial class MainWindow : Window
         {
             ShowError("加载样品库存失败：" + ex.Message);
         }
+    }
+
+    private void chkIncludeZeroStock_Checked(object sender, RoutedEventArgs e)
+    {
+        SampleSearch_Click(sender, e);
+    }
+
+    private void chkIncludeZeroStock_Unchecked(object sender, RoutedEventArgs e)
+    {
+        SampleSearch_Click(sender, e);
     }
 
     private async void SampleSearch_Click(object sender, RoutedEventArgs e)

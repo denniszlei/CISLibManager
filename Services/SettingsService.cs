@@ -76,6 +76,8 @@ public sealed class SettingsService
             FootprintColumnNames = persisted.FootprintColumnNames,
             SymbolColumnNames = persisted.SymbolColumnNames,
             Model3DColumnNames = persisted.Model3DColumnNames,
+            DatasheetLibraryPath = persisted.DatasheetLibraryPath,
+            DatasheetColumnNames = persisted.DatasheetColumnNames.Count > 0 ? persisted.DatasheetColumnNames : new AppSettings().DatasheetColumnNames,
             TablePartNumberPrefixes = SanitizeOrMigrateTablePrefixes(persisted.TablePartNumberPrefixes),
             DigiKeyClientId = persisted.DigiKeyClientId,
             DigiKeyClientSecret = digiKeySecret,
@@ -144,6 +146,8 @@ public sealed class SettingsService
             FootprintColumnNames = [.. settings.FootprintColumnNames],
             SymbolColumnNames = [.. settings.SymbolColumnNames],
             Model3DColumnNames = [.. settings.Model3DColumnNames],
+            DatasheetLibraryPath = settings.DatasheetLibraryPath,
+            DatasheetColumnNames = [.. settings.DatasheetColumnNames],
             TablePartNumberPrefixes = settings.TablePartNumberPrefixes.ToDictionary(),
             DigiKeyClientId = settings.DigiKeyClientId,
             DigiKeyClientSecret = string.Empty,
@@ -226,6 +230,10 @@ public sealed class SettingsService
         public List<string> SymbolColumnNames { get; set; } = ["Schematic_Part", "Schematic Symbol", "Symbol", "SchSymbol", "符号", "原理图符号"];
 
         public List<string> Model3DColumnNames { get; set; } = ["Model_3D", "3D Model", "Model3D", "StepModel", "模型", "三维模型"];
+
+        public string DatasheetLibraryPath { get; set; } = string.Empty;
+
+        public List<string> DatasheetColumnNames { get; set; } = ["Datasheet", "DataSheet", "规格书", "规格文档", "Datasheet_Url", "URL"];
 
         public Dictionary<string, string> TablePartNumberPrefixes { get; set; } = [];
 

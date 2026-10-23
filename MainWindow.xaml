@@ -52,7 +52,8 @@
                             </StackPanel>
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Content="➕ 新增料号 (无图档先行建号)" Height="28" Padding="12,0" FontWeight="Bold" Background="#16A34A" Foreground="White" Click="NewComponent_Click" ToolTip="切换至新增料号模式，自动发号并允许在没有图档时先行建号入库" />
+                                <Button Content="➕ 新增料号" Height="28" Padding="12,0" FontWeight="Bold" Background="#16A34A" Foreground="White" Click="NewComponent_Click" ToolTip="切换至新增料号模式，自动发号并允许在没有图档时先行建号入库" Margin="0,0,8,0" />
+                                <Button x:Name="DeleteTopComponentButton" Content="🗑️ 删除选中料号" Height="28" Padding="10,0" FontWeight="SemiBold" Background="#FEE2E2" Foreground="#DC2626" BorderBrush="#FCA5A5" Click="DeleteTopComponent_Click" ToolTip="在上方列表中选中某条料号后，点击彻底删除该料号（需二次确认）" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -123,7 +124,9 @@
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" x:Name="FormEditingHint" Text="提示：图档字段可留空，先建号即可在样品库中入库管理" Foreground="#64748B" VerticalAlignment="Center" FontSize="11" />
                                         <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                            <Button Content="清空重置" Height="30" Padding="10,0" Margin="0,0,8,0" Click="ResetForm_Click" />
+                                            <Button x:Name="SwitchToNewModeButton" Content="➕ 转为新增模式" Height="30" Padding="10,0" Margin="0,0,8,0" Click="NewComponent_Click" Visibility="Collapsed" ToolTip="放弃当前编辑，切换至新建料号模式" />
+                                            <Button x:Name="ResetFormButton" Content="清空重置" Height="30" Padding="10,0" Margin="0,0,8,0" Click="ResetForm_Click" />
+                                            <Button x:Name="DeleteFormButton" Content="🗑️ 删除此料号" Height="30" Padding="12,0" Margin="0,0,8,0" Background="#DC2626" Foreground="White" FontWeight="Bold" Click="DeleteCurrentComponent_Click" Visibility="Collapsed" ToolTip="从数据库彻底删除当前料号记录（需确认）" />
                                             <Button x:Name="SaveComponentButton" Content="💾 保存料号至数据库" Height="30" Padding="14,0" FontWeight="Bold" Background="#2563EB" Foreground="White" Click="SaveComponent_Click" />
                                         </StackPanel>
                                     </Grid>
@@ -402,10 +405,11 @@
                             </Grid.ColumnDefinitions>
 
                             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button Content="📋 查看全部样品库存" Height="28" Padding="12,0" Margin="0,0,16,0" Click="SampleShowAll_Click" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#94A3B8" ToolTip="点击载入或刷新全部样品的库存总览清单" />
+                                <Button Content="📋 查看全部样品库存" Height="28" Padding="12,0" Margin="0,0,14,0" Click="SampleShowAll_Click" FontWeight="SemiBold" Background="#F8FAFC" BorderBrush="#94A3B8" ToolTip="点击载入或刷新全部样品的库存总览清单" />
                                 <TextBlock Text="按料号/型号精确检索:" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="#475569" />
-                                <TextBox x:Name="SampleSearchBox" Width="260" Height="28" VerticalContentAlignment="Center" Margin="0,0,8,0" KeyDown="SampleSearchBox_KeyDown" ToolTip="输入公司料号 (PN)、原厂型号 (MPN)、描述或库位" />
-                                <Button Content="查询" Width="70" Height="28" Click="SampleSearch_Click" Background="#2563EB" Foreground="White" />
+                                <TextBox x:Name="SampleSearchBox" Width="220" Height="28" VerticalContentAlignment="Center" Margin="0,0,8,0" KeyDown="SampleSearchBox_KeyDown" ToolTip="输入公司料号 (PN)、原厂型号 (MPN)、描述或库位" />
+                                <Button Content="查询" Width="65" Height="28" Click="SampleSearch_Click" Background="#2563EB" Foreground="White" Margin="0,0,12,0" />
+                                <CheckBox x:Name="chkIncludeZeroStock" Content="显示全库料号 (包含零库存待入库物料)" IsChecked="True" VerticalAlignment="Center" Checked="chkIncludeZeroStock_Checked" Unchecked="chkIncludeZeroStock_Unchecked" ToolTip="勾选后将自动聚合全库物料，使新创建尚未入库的物料也能直接在列表中选中并执行入库" />
                             </StackPanel>
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">

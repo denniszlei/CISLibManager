@@ -300,57 +300,112 @@ public sealed class DatabaseService
         }
     }
 
-    public async Task<List<SampleInventoryItem>> QuerySampleInventoriesAsync(AppSettings settings, string? keyword = null)
+    public async Task<List<SampleInventoryItem>> QuerySampleInventoriesAsync(AppSettings settings, string? keyword = null, bool includeZeroStockComponents = true)
     {
         await EnsureSampleTablesExistAsync(settings);
         var results = new List<SampleInventoryItem>();
         await using var connection = await OpenConnectionAsync(settings);
 
-        var sql = @"
-            SELECT si.id, si.Part_Number, si.Location, si.Quantity_On_Hand, si.Quantity_Lent,
-                   si.Quantity_Total_In, si.Min_Alert_Qty, si.Distributor, si.Remark, si.Updated_At,
-                   v.Part_Type, v.Value, v.Package, v.Description, v.Manufacturer, v.Manufacturer_Part_Number
-            FROM `sample_inventory` si
-            LEFT JOIN `v_all_components` v ON si.Part_Number = v.Part_Number
-        ";
-
-        if (!string.IsNullOrWhiteSpace(keyword))
+        var stockDict = new Dictionary<string, List<SampleInventoryItem>>(StringComparer.OrdinalIgnoreCase);
+        var stockSql = "SELECT `id`, `Part_Number`, `Location`, `Quantity_On_Hand`, `Quantity_Lent`, `Quantity_Total_In`, `Min_Alert_Qty`, `Distributor`, `Remark`, `Updated_At` FROM `sample_inventory`";
+        await using (var cmd = new MySqlCommand(stockSql, connection))
+        await using (var reader = await cmd.ExecuteReaderAsync())
         {
-            sql += @" WHERE si.Part_Number LIKE @kw OR si.Location LIKE @kw OR si.Distributor LIKE @kw
-                      OR v.Manufacturer_Part_Number LIKE @kw OR v.Description LIKE @kw OR v.Value LIKE @kw";
-        }
-        sql += " ORDER BY si.Updated_At DESC";
-
-        await using var cmd = new MySqlCommand(sql, connection);
-        if (!string.IsNullOrWhiteSpace(keyword))
-        {
-            cmd.Parameters.AddWithValue("@kw", $"%{keyword.Trim()}%");
-        }
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
-        {
-            results.Add(new SampleInventoryItem
+            while (await reader.ReadAsync())
             {
-                Id = reader.GetInt64(0),
-                PartNumber = reader.GetString(1),
-                Location = reader.GetString(2),
-                QuantityOnHand = reader.GetInt32(3),
-                QuantityLent = reader.GetInt32(4),
-                QuantityTotalIn = reader.GetInt32(5),
-                MinAlertQty = reader.GetInt32(6),
-                Distributor = reader.IsDBNull(7) ? null : reader.GetString(7),
-                Remark = reader.IsDBNull(8) ? null : reader.GetString(8),
-                UpdatedAt = reader.IsDBNull(9) ? null : reader.GetDateTime(9),
-                PartType = reader.IsDBNull(10) ? null : reader.GetString(10),
-                Value = reader.IsDBNull(11) ? null : reader.GetString(11),
-                Package = reader.IsDBNull(12) ? null : reader.GetString(12),
-                Description = reader.IsDBNull(13) ? null : reader.GetString(13),
-                Manufacturer = reader.IsDBNull(14) ? null : reader.GetString(14),
-                ManufacturerPartNumber = reader.IsDBNull(15) ? null : reader.GetString(15)
-            });
+                var pn = reader.GetString(1);
+                var item = new SampleInventoryItem
+                {
+                    Id = reader.GetInt64(0),
+                    PartNumber = pn,
+                    Location = reader.GetString(2),
+                    QuantityOnHand = reader.GetInt32(3),
+                    QuantityLent = reader.GetInt32(4),
+                    QuantityTotalIn = reader.GetInt32(5),
+                    MinAlertQty = reader.GetInt32(6),
+                    Distributor = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    Remark = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    UpdatedAt = reader.IsDBNull(9) ? null : reader.GetDateTime(9)
+                };
+                if (!stockDict.TryGetValue(pn, out var list))
+                {
+                    list = [];
+                    stockDict[pn] = list;
+                }
+                list.Add(item);
+            }
         }
-        return results;
+
+        var allComps = await QueryAllComponentsAsync(settings, keyword);
+        var seenPn = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var comp in allComps)
+        {
+            seenPn.Add(comp.PartNumber);
+            if (stockDict.TryGetValue(comp.PartNumber, out var stocks) && stocks.Count > 0)
+            {
+                foreach (var s in stocks)
+                {
+                    s.PartType = comp.Category;
+                    s.Value = comp.Value;
+                    s.Package = comp.Package;
+                    s.Description = comp.Description;
+                    s.Manufacturer = comp.Manufacturer;
+                    s.ManufacturerPartNumber = comp.ManufacturerPartNumber;
+                    results.Add(s);
+                }
+            }
+            else if (includeZeroStockComponents)
+            {
+                results.Add(new SampleInventoryItem
+                {
+                    Id = 0,
+                    PartNumber = comp.PartNumber,
+                    Location = "默认样品柜",
+                    QuantityOnHand = 0,
+                    QuantityLent = 0,
+                    QuantityTotalIn = 0,
+                    MinAlertQty = 0,
+                    Distributor = comp.Distributor,
+                    Remark = comp.Note,
+                    UpdatedAt = null,
+                    PartType = comp.Category,
+                    Value = comp.Value,
+                    Package = comp.Package,
+                    Description = comp.Description,
+                    Manufacturer = comp.Manufacturer,
+                    ManufacturerPartNumber = comp.ManufacturerPartNumber
+                });
+            }
+        }
+
+        foreach (var (pn, stocks) in stockDict)
+        {
+            if (!seenPn.Contains(pn))
+            {
+                if (string.IsNullOrWhiteSpace(keyword) || 
+                    pn.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                    stocks.Any(s => (s.Location?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true) || (s.Distributor?.Contains(keyword, StringComparison.OrdinalIgnoreCase) == true)))
+                {
+                    results.AddRange(stocks);
+                }
+            }
+        }
+
+        return results
+            .OrderByDescending(r => r.QuantityOnHand > 0 || r.QuantityTotalIn > 0)
+            .ThenByDescending(r => r.UpdatedAt ?? DateTime.MinValue)
+            .ThenBy(r => r.PartNumber)
+            .ToList();
+    }
+
+    public async Task DeleteComponentAsync(AppSettings settings, string tableName, string partNumberColumn, string partNumberValue)
+    {
+        await using var connection = await OpenConnectionAsync(settings);
+        var sql = $"DELETE FROM {EscapeIdentifier(tableName)} WHERE {EscapeIdentifier(partNumberColumn)} = @pn LIMIT 1";
+        await using var cmd = new MySqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue("@pn", partNumberValue);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task<List<SampleTransactionRecord>> QuerySampleTransactionsAsync(AppSettings settings, string? partNumber = null, int limit = 100)
