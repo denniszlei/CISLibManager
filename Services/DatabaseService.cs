@@ -164,7 +164,7 @@ public sealed class DatabaseService
         {
             var column = writableColumns[i];
             var value = values[column.Name];
-            command.Parameters.AddWithValue("@p" + i, string.IsNullOrWhiteSpace(value) ? DBNull.Value : value);
+            command.Parameters.AddWithValue("@p" + i, GetSqlSafeValue(column, value));
         }
 
         await command.ExecuteNonQueryAsync();
@@ -213,7 +213,7 @@ public sealed class DatabaseService
         {
             var column = writableColumns[i];
             var value = values[column.Name];
-            command.Parameters.AddWithValue("@p" + i, string.IsNullOrWhiteSpace(value) ? DBNull.Value : value);
+            command.Parameters.AddWithValue("@p" + i, GetSqlSafeValue(column, value));
         }
 
         command.Parameters.AddWithValue("@keyValue", keyValue);
@@ -690,4 +690,22 @@ public sealed class DatabaseService
         await cmd.ExecuteNonQueryAsync();
     }
 
+
+    private static object GetSqlSafeValue(ColumnInfo column, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            if (!column.IsNullable)
+            {
+                var dt = column.DataType.ToLowerInvariant();
+                if (dt.Contains("int") || dt.Contains("decimal") || dt.Contains("float") || dt.Contains("double") || dt.Contains("numeric"))
+                {
+                    return 0;
+                }
+                return string.Empty;
+            }
+            return DBNull.Value;
+        }
+        return value;
+    }
 }

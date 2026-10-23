@@ -26,6 +26,11 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, TextBlock> _footprintStatusBadges = [];
     private readonly Dictionary<string, TextBlock> _model3dStatusBadges = [];
 
+    private readonly Dictionary<string, Control> _drawingInputs = [];
+    private readonly Dictionary<string, TextBlock> _drawingFootprintBadges = [];
+    private readonly Dictionary<string, TextBlock> _drawingModel3dBadges = [];
+    private IReadOnlyList<ColumnInfo> _drawingTableColumns = [];
+
     private readonly Dictionary<string, Control> _inputs = [];
     private readonly Dictionary<string, ComboBox> _symbolLibraryInputs = [];
     private readonly Dictionary<FileColumnKind, List<string>> _selectedFiles = [];
@@ -472,6 +477,10 @@ public partial class MainWindow : Window
                 {
                     digi.DatasheetUrl = match.DatasheetUrl;
                 }
+                else if (!string.IsNullOrWhiteSpace(match.DatasheetUrl))
+                {
+                    digi.AlternativeDatasheetUrl = match.DatasheetUrl;
+                }
             }
 
             combined.Add(digi);
@@ -489,6 +498,32 @@ public partial class MainWindow : Window
         }
 
         return combined;
+    }
+
+    private bool IsDrawingField(string columnName)
+    {
+        var footprintCol = _databaseService.FindFootprintColumn(_columns, _settings);
+        var model3dCol = _databaseService.FindModel3DColumn(_columns, _settings);
+        var symbolCol = _databaseService.FindSymbolColumn(_columns, _settings);
+        var dsCol = _databaseService.FindDatasheetColumn(_columns, _settings);
+
+        if (string.Equals(columnName, footprintCol, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(columnName, model3dCol, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(columnName, symbolCol, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(columnName, dsCol, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var colLower = columnName.ToLowerInvariant();
+        return colLower.Contains("schematic") ||
+               colLower.Contains("footprint") ||
+               colLower.Contains("model") ||
+               colLower.Contains("reference") ||
+               colLower.Contains("symbol") ||
+               colLower.Contains("pcb") ||
+               colLower.Contains("package") ||
+               colLower.Contains("datasheet");
     }
 
     private static string CleanPartNumber(string? pn)
@@ -542,7 +577,7 @@ public partial class MainWindow : Window
         }
 
         string? storedDatasheetPath = null;
-        if (chkAutoDownloadDatasheet.IsChecked == true && !string.IsNullOrWhiteSpace(item.DatasheetUrl))
+        if (chkAutoDownloadDatasheet.IsChecked == true && (!string.IsNullOrWhiteSpace(item.DatasheetUrl) || !string.IsNullOrWhiteSpace(item.AlternativeDatasheetUrl)))
         {
             try
             {
@@ -550,7 +585,12 @@ public partial class MainWindow : Window
                 var targetName = !string.IsNullOrWhiteSpace(item.ManufacturerProductNumber)
                     ? item.ManufacturerProductNumber
                     : (GetInputValue("Part_Number") ?? "datasheet");
-                storedDatasheetPath = await _fileLibraryService.DownloadAndSaveDatasheetAsync(_settings, item.DatasheetUrl, targetName);
+                storedDatasheetPath = await _fileLibraryService.DownloadAndSaveDatasheetAsync(
+                    _settings,
+                    item.DatasheetUrl ?? string.Empty,
+                    targetName,
+                    item.AlternativeDatasheetUrl
+                );
                 if (!string.IsNullOrWhiteSpace(storedDatasheetPath))
                 {
                     SetStatus($"规格书已成功保存至文档目录: {storedDatasheetPath}");
@@ -558,11 +598,26 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                SetStatus($"规格书下载提示: {ex.Message}，暂保留原始链接。");
+                SetStatus($"规格书下载提示: {ex.Message}");
             }
         }
 
-        var finalDatasheet = !string.IsNullOrWhiteSpace(storedDatasheetPath) ? storedDatasheetPath : item.DatasheetUrl;
+        string? finalDatasheet = null;
+        if (!string.IsNullOrWhiteSpace(storedDatasheetPath))
+        {
+            finalDatasheet = storedDatasheetPath;
+        }
+        else if (chkAutoDownloadDatasheet.IsChecked == true && !string.IsNullOrWhiteSpace(item.DatasheetUrl))
+        {
+            var ask = MessageBox.Show(this,
+                $"规格书未能从原厂服务器成功下载到本地或 SMB 文档库（可能因原厂反爬拦截或海外网络超时）。\r\n\r\n是否仍将原始网络 URL 填入字段？\r\n\r\n• 点击【是】：填入网络 URL 链接\r\n• 点击【否】：字段保持留空，可在【CIS图档维护】中手动上传",
+                "规格书下载提示", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            finalDatasheet = (ask == MessageBoxResult.Yes) ? item.DatasheetUrl : string.Empty;
+        }
+        else
+        {
+            finalDatasheet = item.DatasheetUrl;
+        }
 
         SetInputValueIfColumnMatches(item.Manufacturer, "Manufacturer", "厂商", "品牌", "Mfg");
         SetInputValueIfColumnMatches(item.ManufacturerProductNumber, "Manufacturer_Part_Number", "MPN", "原厂型号", "PartNumber", "Part_Number_Mfg");
@@ -691,22 +746,226 @@ public partial class MainWindow : Window
         }
     }
 
-    private void DrawingsTargetGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void DrawingsTargetGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         var item = DrawingsTargetGrid.SelectedItem as ComponentItem;
         if (item == null)
         {
             _selectedDrawingComponent = null;
             SelectedDrawingPartInfo.Text = "当前选定物料: 未选定 (请在下方列表点击选中目标物料)";
+            DrawingTargetFormTitle.Text = "当前物料: 请先在上方列表中点击选中";
+            DrawingFormPanel.Children.Clear();
+            _drawingInputs.Clear();
+            _drawingFootprintBadges.Clear();
+            _drawingModel3dBadges.Clear();
             return;
         }
 
         _selectedDrawingComponent = item;
         SelectedDrawingPartInfo.Text = $"当前选定物料: {item.PartNumber} ({item.ManufacturerPartNumber} {item.Value}) | 分类: {item.Category} | 图档状态: {item.DrawingStatus}";
+        DrawingTargetFormTitle.Text = $"物料图档维护: {item.PartNumber} | 分类: {item.Category} | 表: {item.TableName} | 图档状态: {item.DrawingStatus}";
 
         if (!string.IsNullOrWhiteSpace(item.PcbFootprint)) FootprintFilesBox.Text = item.PcbFootprint;
         if (!string.IsNullOrWhiteSpace(item.SchematicPart)) SourceSymbolLibraryBox.Text = item.SchematicPart;
         if (!string.IsNullOrWhiteSpace(item.Model3D)) Model3DFileBox.Text = item.Model3D;
+
+        await LoadSelectedDrawingComponentDetailAsync(item);
+    }
+
+    private async Task LoadSelectedDrawingComponentDetailAsync(ComponentItem comp)
+    {
+        try
+        {
+            DrawingFormPanel.Children.Clear();
+            _drawingInputs.Clear();
+            _drawingFootprintBadges.Clear();
+            _drawingModel3dBadges.Clear();
+
+            _drawingTableColumns = await _databaseService.GetColumnsAsync(_settings, comp.TableName);
+            var partNumberCol = _databaseService.FindPartNumberColumn(_drawingTableColumns, _settings) ?? "Part_Number";
+            var row = await _databaseService.GetSingleRowByColumnAsync(_settings, comp.TableName, partNumberCol, comp.PartNumber, _drawingTableColumns);
+
+            var footprintCol = _databaseService.FindFootprintColumn(_drawingTableColumns, _settings);
+            var model3dCol = _databaseService.FindModel3DColumn(_drawingTableColumns, _settings);
+
+            foreach (var column in _drawingTableColumns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
+            {
+                var itemPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 6), LastChildFill = true };
+                var isDrawing = IsDrawingField(column.Name);
+                var label = new TextBlock
+                {
+                    Text = column.Name,
+                    Width = 110,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = isDrawing ? new SolidColorBrush(Color.FromRgb(37, 99, 235)) : new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+                    FontWeight = isDrawing ? FontWeights.SemiBold : FontWeights.Normal
+                };
+                DockPanel.SetDock(label, Dock.Left);
+                itemPanel.Children.Add(label);
+
+                var curVal = row != null && row.TryGetValue(column.Name, out var v) ? v : string.Empty;
+
+                if (footprintCol != null && string.Equals(column.Name, footprintCol, StringComparison.OrdinalIgnoreCase))
+                {
+                    var (ctl, cb) = CreateDrawingFootprintControl(column, curVal);
+                    _drawingInputs[column.Name] = cb;
+                    itemPanel.Children.Add(ctl);
+                }
+                else if (model3dCol != null && string.Equals(column.Name, model3dCol, StringComparison.OrdinalIgnoreCase))
+                {
+                    var (ctl, tb) = CreateDrawingModel3DControl(column, curVal);
+                    _drawingInputs[column.Name] = tb;
+                    itemPanel.Children.Add(ctl);
+                }
+                else
+                {
+                    var tb = new TextBox
+                    {
+                        Height = 26,
+                        VerticalContentAlignment = VerticalAlignment.Center,
+                        Text = curVal ?? string.Empty,
+                        IsReadOnly = string.Equals(column.Name, partNumberCol, StringComparison.OrdinalIgnoreCase),
+                        Background = string.Equals(column.Name, partNumberCol, StringComparison.OrdinalIgnoreCase) ? new SolidColorBrush(Color.FromRgb(241, 245, 249)) : System.Windows.Media.Brushes.White
+                    };
+                    _drawingInputs[column.Name] = tb;
+                    itemPanel.Children.Add(tb);
+                }
+
+                DrawingFormPanel.Children.Add(itemPanel);
+            }
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"载入物料图档详情表单失败: {ex.Message}");
+        }
+    }
+
+    private (UIElement Container, ComboBox Box) CreateDrawingFootprintControl(ColumnInfo column, string? initialValue)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var cb = new ComboBox
+        {
+            Height = 26,
+            IsEditable = true,
+            IsTextSearchEnabled = false,
+            Text = initialValue ?? string.Empty,
+            ItemsSource = _libraryCacheService.Footprints,
+            ToolTip = $"Allegro PCB 封装 (支持联想现有库，可自由修改)\n数据库字段: {column.Name}"
+        };
+
+        var statusBadge = new TextBlock
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold
+        };
+        Grid.SetColumn(statusBadge, 1);
+        _drawingFootprintBadges[column.Name] = statusBadge;
+
+        cb.SelectionChanged += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(new Action(() => UpdateDrawingFootprintBadge(column.Name, cb.Text)));
+        };
+
+        cb.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new TextChangedEventHandler((_, _) =>
+        {
+            UpdateDrawingFootprintBadge(column.Name, cb.Text);
+        }));
+
+        cb.DropDownOpened += (_, _) =>
+        {
+            var curText = cb.Text.Trim();
+            cb.ItemsSource = _libraryCacheService.SearchFootprints(curText, 60);
+        };
+
+        grid.Children.Add(cb);
+        grid.Children.Add(statusBadge);
+
+        UpdateDrawingFootprintBadge(column.Name, initialValue);
+        return (grid, cb);
+    }
+
+    private void UpdateDrawingFootprintBadge(string columnName, string? text)
+    {
+        if (!_drawingFootprintBadges.TryGetValue(columnName, out var badge)) return;
+        var clean = text?.Trim();
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            badge.Text = "⚪ 留空";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
+        }
+        else if (_libraryCacheService.IsFootprintExists(clean))
+        {
+            badge.Text = "🟢 已就绪";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(22, 163, 74));
+            badge.ToolTip = $"SMB 库中已存在此封装 ({clean}.dra/.psm)";
+        }
+        else
+        {
+            badge.Text = "🟡 待补图档";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(217, 119, 6));
+            badge.ToolTip = $"SMB 库中暂无此文件 ({clean})";
+        }
+    }
+
+    private (UIElement Container, TextBox Box) CreateDrawingModel3DControl(ColumnInfo column, string? initialValue)
+    {
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var tb = new TextBox
+        {
+            Height = 26,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Text = initialValue ?? string.Empty,
+            ToolTip = $"3D STEP 模型文件名 (如 R0402.step)\n数据库字段: {column.Name}"
+        };
+
+        var statusBadge = new TextBlock
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold
+        };
+        Grid.SetColumn(statusBadge, 1);
+        _drawingModel3dBadges[column.Name] = statusBadge;
+
+        tb.TextChanged += (_, _) => UpdateDrawingModel3DBadge(column.Name, tb.Text);
+
+        grid.Children.Add(tb);
+        grid.Children.Add(statusBadge);
+
+        UpdateDrawingModel3DBadge(column.Name, initialValue);
+        return (grid, tb);
+    }
+
+    private void UpdateDrawingModel3DBadge(string columnName, string? text)
+    {
+        if (!_drawingModel3dBadges.TryGetValue(columnName, out var badge)) return;
+        var clean = text?.Trim();
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            badge.Text = "⚪ 留空";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
+        }
+        else if (_libraryCacheService.IsModel3DExists(clean))
+        {
+            badge.Text = "🟢 已就绪";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(22, 163, 74));
+            badge.ToolTip = $"SMB 库中已存在此 3D 模型 ({clean})";
+        }
+        else
+        {
+            badge.Text = "🟡 待补模型";
+            badge.Foreground = new SolidColorBrush(Color.FromRgb(217, 119, 6));
+            badge.ToolTip = $"SMB 库中暂无此文件 ({clean})";
+        }
     }
 
     private async void SubmitDrawings_Click(object sender, RoutedEventArgs e)
@@ -762,14 +1021,29 @@ public partial class MainWindow : Window
                 return;
             }
 
-            await _databaseService.UpdateComponentDrawingsAsync(
-                _settings,
-                _selectedDrawingComponent.TableName,
-                _selectedDrawingComponent.PartNumber,
-                symbolVal,
-                footprintVal,
-                model3dVal
-            );
+            // 优先检查 Tab 2 详情表单中是否有全字段修改
+            if (_drawingInputs.Count > 0 && _drawingTableColumns.Count > 0)
+            {
+                var formValues = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (col, ctrl) in _drawingInputs)
+                {
+                    if (ctrl is TextBox tb) formValues[col] = tb.Text;
+                    else if (ctrl is ComboBox cb) formValues[col] = cb.Text;
+                }
+                var partNumberCol = _databaseService.FindPartNumberColumn(_drawingTableColumns, _settings) ?? "Part_Number";
+                await _databaseService.UpdateRowAsync(_settings, _selectedDrawingComponent.TableName, formValues, _drawingTableColumns, partNumberCol, _selectedDrawingComponent.PartNumber);
+            }
+            else
+            {
+                await _databaseService.UpdateComponentDrawingsAsync(
+                    _settings,
+                    _selectedDrawingComponent.TableName,
+                    _selectedDrawingComponent.PartNumber,
+                    symbolVal,
+                    footprintVal,
+                    model3dVal
+                );
+            }
 
             MessageBox.Show(this, $"物料 {_selectedDrawingComponent.PartNumber} 图档维护成功！\r\n\r\n已分发文件至 SMB 库并更新数据库：\r\n- 原理图符号: {symbolVal ?? "(未变动)"}\r\n- PCB封装: {footprintVal ?? "(未变动)"}\r\n- 3D模型: {model3dVal ?? "(未变动)"}", "图档更新成功", MessageBoxButton.OK, MessageBoxImage.Information);
 
@@ -1184,13 +1458,16 @@ public partial class MainWindow : Window
         foreach (var column in _columns.Where(c => !c.IsAutoIncrement && !c.IsGenerated))
         {
             var itemPanel = new DockPanel { Margin = new Thickness(0, 0, 0, 6), LastChildFill = true };
+            var isDrawing = IsDrawingField(column.Name);
+            var isRequired = !column.IsNullable && !isDrawing; // 图档字段绝不打红星号，由图档维护负责
             var label = new TextBlock
             {
-                Text = column.Name + (column.IsNullable ? "" : " *"),
+                Text = column.Name + (isRequired ? " *" : ""),
                 Width = 110,
                 VerticalAlignment = VerticalAlignment.Center,
-                Foreground = column.IsNullable ? new SolidColorBrush(Color.FromRgb(51, 65, 85)) : new SolidColorBrush(Color.FromRgb(220, 38, 38)),
-                FontWeight = column.IsNullable ? FontWeights.Normal : FontWeights.SemiBold
+                Foreground = isRequired ? new SolidColorBrush(Color.FromRgb(220, 38, 38)) : new SolidColorBrush(Color.FromRgb(51, 65, 85)),
+                FontWeight = isRequired ? FontWeights.SemiBold : FontWeights.Normal,
+                ToolTip = isDrawing ? "图档字段 (允许留空，可在【CIS图档维护】中补齐)" : null
             };
             DockPanel.SetDock(label, Dock.Left);
             itemPanel.Children.Add(label);
@@ -1419,6 +1696,7 @@ public partial class MainWindow : Window
 
     private void ApplySelectedFilesToForm()
     {
+        // 1. 同步回填 Tab 1 表单 (若当前表存在对应列)
         foreach (var (kind, files) in _selectedFiles)
         {
             string? targetCol = kind switch
@@ -1432,6 +1710,36 @@ public partial class MainWindow : Window
             if (targetCol != null && files.Count > 0)
             {
                 SetInputValue(targetCol, Path.GetFileNameWithoutExtension(files[0]));
+            }
+        }
+
+        // 2. 同步回填 Tab 2 选定物料的图档维护表单 (自动回填并点亮绿灯)
+        if (_drawingTableColumns.Count > 0 && _drawingInputs.Count > 0)
+        {
+            foreach (var (kind, files) in _selectedFiles)
+            {
+                string? targetCol = kind switch
+                {
+                    FileColumnKind.Footprint => _databaseService.FindFootprintColumn(_drawingTableColumns, _settings),
+                    FileColumnKind.Symbol => _databaseService.FindSymbolColumn(_drawingTableColumns, _settings),
+                    FileColumnKind.Model3D => _databaseService.FindModel3DColumn(_drawingTableColumns, _settings),
+                    _ => null
+                };
+
+                if (targetCol != null && files.Count > 0 && _drawingInputs.TryGetValue(targetCol, out var ctrl))
+                {
+                    var baseName = Path.GetFileNameWithoutExtension(files[0]);
+                    if (ctrl is TextBox tb)
+                    {
+                        tb.Text = baseName;
+                        UpdateDrawingModel3DBadge(targetCol, baseName);
+                    }
+                    else if (ctrl is ComboBox cb)
+                    {
+                        cb.Text = baseName;
+                        UpdateDrawingFootprintBadge(targetCol, baseName);
+                    }
+                }
             }
         }
     }

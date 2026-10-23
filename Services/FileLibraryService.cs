@@ -70,9 +70,9 @@ public sealed class FileLibraryService
         return new FileCopyResult(ToStoredValue(settings, destinationPath), false);
     }
 
-    public async Task<string?> DownloadAndSaveDatasheetAsync(AppSettings settings, string datasheetUrl, string partNumberOrMpn)
+    public async Task<string?> DownloadAndSaveDatasheetAsync(AppSettings settings, string datasheetUrl, string partNumberOrMpn, string? fallbackUrl = null)
     {
-        if (string.IsNullOrWhiteSpace(datasheetUrl)) return null;
+        if (string.IsNullOrWhiteSpace(datasheetUrl) && string.IsNullOrWhiteSpace(fallbackUrl)) return null;
 
         var libraryPath = settings.DatasheetLibraryPath;
         if (string.IsNullOrWhiteSpace(libraryPath))
@@ -86,19 +86,42 @@ public sealed class FileLibraryService
         if (string.IsNullOrWhiteSpace(safeName)) safeName = "datasheet_" + DateTime.Now.Ticks;
         var destinationPath = Path.Combine(libraryPath, $"{safeName}.pdf");
 
-        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-
-        using var resp = await client.GetAsync(datasheetUrl);
-        if (!resp.IsSuccessStatusCode)
+        var urlsToTry = new List<string>();
+        if (!string.IsNullOrWhiteSpace(datasheetUrl)) urlsToTry.Add(datasheetUrl);
+        if (!string.IsNullOrWhiteSpace(fallbackUrl) && !string.Equals(fallbackUrl, datasheetUrl, StringComparison.OrdinalIgnoreCase))
         {
-            return null;
+            urlsToTry.Add(fallbackUrl);
         }
 
-        await using var fs = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
-        await resp.Content.CopyToAsync(fs);
+        using var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            AutomaticDecompression = System.Net.DecompressionMethods.All
+        };
+        using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(25) };
+        client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        client.DefaultRequestHeaders.Add("Accept", "application/pdf,application/octet-stream,*/*");
+        client.DefaultRequestHeaders.Add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
 
-        return ToStoredValue(settings, destinationPath);
+        foreach (var url in urlsToTry)
+        {
+            try
+            {
+                using var resp = await client.GetAsync(url);
+                if (resp.IsSuccessStatusCode)
+                {
+                    await using var fs = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                    await resp.Content.CopyToAsync(fs);
+                    return ToStoredValue(settings, destinationPath);
+                }
+            }
+            catch
+            {
+                // Try next fallback URL if available
+            }
+        }
+
+        return null;
     }
 
     private static async Task CopyFileAsync(string sourcePath, string destinationPath, bool overwrite)

@@ -18,6 +18,8 @@ public sealed class ComponentSearchResult
 
     public string? DatasheetUrl { get; set; }
 
+    public string? AlternativeDatasheetUrl { get; set; }
+
     public string? PhotoUrl { get; set; }
 
     public string LifecycleStatus { get; set; } = "Active";
