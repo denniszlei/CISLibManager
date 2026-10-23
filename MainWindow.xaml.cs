@@ -895,7 +895,7 @@ public partial class MainWindow : Window
         var clean = text?.Trim();
         if (string.IsNullOrWhiteSpace(clean))
         {
-            badge.Text = "⚪ 留空";
+            badge.Text = string.Empty;
             badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
         }
         else if (_libraryCacheService.IsFootprintExists(clean))
@@ -951,7 +951,7 @@ public partial class MainWindow : Window
         var clean = text?.Trim();
         if (string.IsNullOrWhiteSpace(clean))
         {
-            badge.Text = "⚪ 留空";
+            badge.Text = string.Empty;
             badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
         }
         else if (_libraryCacheService.IsModel3DExists(clean))
@@ -1522,7 +1522,7 @@ public partial class MainWindow : Window
             Margin = new Thickness(8, 0, 0, 0),
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            Text = "⚪ 留空",
+            Text = string.Empty,
             Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
         };
         Grid.SetColumn(statusBadge, 1);
@@ -1557,7 +1557,7 @@ public partial class MainWindow : Window
         var clean = text?.Trim();
         if (string.IsNullOrWhiteSpace(clean))
         {
-            badge.Text = "⚪ 留空";
+            badge.Text = string.Empty;
             badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
             badge.ToolTip = "未指定封装，允许先行建号，后续补齐";
         }
@@ -1594,7 +1594,7 @@ public partial class MainWindow : Window
             Margin = new Thickness(8, 0, 0, 0),
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            Text = "⚪ 留空",
+            Text = string.Empty,
             Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
         };
         Grid.SetColumn(statusBadge, 1);
@@ -1615,7 +1615,7 @@ public partial class MainWindow : Window
         var clean = text?.Trim();
         if (string.IsNullOrWhiteSpace(clean))
         {
-            badge.Text = "⚪ 留空";
+            badge.Text = string.Empty;
             badge.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
             badge.ToolTip = "未指定 3D 模型";
         }

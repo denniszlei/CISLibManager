@@ -29,7 +29,7 @@ public sealed class AppSettings
 
     public List<string> PartNumberColumnNames { get; set; } = ["Part_Number", "Part Number", "PartNumber", "Part_No", "PN", "编号", "料号"];
 
-    public List<string> FootprintColumnNames { get; set; } = ["PCB_Footprint", "PCB Footprint", "Footprint", "Package", "封装"];
+    public List<string> FootprintColumnNames { get; set; } = ["PCB_Footprint", "PCB Footprint", "Footprint", "PCBFootprint", "封装"];
 
     public List<string> SymbolColumnNames { get; set; } = ["Schematic_Part", "Schematic Symbol", "Symbol", "SchSymbol", "符号", "原理图符号"];
 
